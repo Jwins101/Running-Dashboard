@@ -25,7 +25,17 @@ jobs:
       - name: Restore saved Garmin tokens
         run: |
           echo "${{ secrets.GARMIN_TOKENS_B64 }}" | base64 -d > garmin_tokens.zip
-          unzip -o garmin_tokens.zip -d garmin_tokens
+          mkdir -p garmin_tokens_raw
+          unzip -o garmin_tokens.zip -d garmin_tokens_raw || true
+          mkdir -p garmin_tokens
+          FOUND=$(find garmin_tokens_raw -iname "garmin_tokens.json" | head -n1)
+          if [ -z "$FOUND" ]; then
+            echo "Could not find garmin_tokens.json inside the archive" >&2
+            find garmin_tokens_raw
+            exit 1
+          fi
+          cp "$FOUND" garmin_tokens/garmin_tokens.json
+          echo "Token file placed at garmin_tokens/garmin_tokens.json"
 
       - name: Run sync
         env:
