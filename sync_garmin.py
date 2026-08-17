@@ -1,31 +1,53 @@
 """
 Pulls recent running activities from Garmin Connect and writes data.json
-in the format the dashboard expects. Meant to be run on a schedule
-(see .github/workflows/sync.yml) so the hosted dashboard stays current.
+in the format the dashboard expects. Run on a schedule via
+.github/workflows/sync.yml.
 
-Requires env vars: GARMIN_EMAIL, GARMIN_PASSWORD
-Install: pip install garminconnect
+Points GARMINTOKENS at a folder containing a previously-saved
+garmin_tokens.json (generated locally via generate_garmin_tokens.py, from
+a trusted residential IP). If a valid cached token is present, the
+library reuses it instead of doing a fresh password login — fresh logins
+from CI IPs get rate-limited / challenged by Garmin.
+
+Env vars:
+    GARMIN_TOKEN_DIR   folder containing garmin_tokens.json
+    GARMIN_EMAIL       used as fallback / required by the constructor
+    GARMIN_PASSWORD    used as fallback / required by the constructor
 """
+import argparse
 import json
 import os
 import sys
 from datetime import datetime, timedelta
 
-from garminconnect import Garmin
-
 MI = 1609.34
 LOOKBACK_DAYS = 210  # keep ~7 months of history in the file
 
 
-def main():
+def get_client():
+    token_dir = os.environ.get("GARMIN_TOKEN_DIR")
+    if token_dir:
+        os.environ["GARMINTOKENS"] = os.path.abspath(token_dir)
+
+    from garminconnect import Garmin  # import after GARMINTOKENS is set
+
     email = os.environ.get("GARMIN_EMAIL")
     password = os.environ.get("GARMIN_PASSWORD")
     if not email or not password:
-        print("Missing GARMIN_EMAIL / GARMIN_PASSWORD env vars", file=sys.stderr)
+        print("GARMIN_EMAIL/GARMIN_PASSWORD not set", file=sys.stderr)
         sys.exit(1)
 
     client = Garmin(email, password)
     client.login()
+    return client
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default="data.json", help="Output path for the data file")
+    args = parser.parse_args()
+
+    client = get_client()
 
     end = datetime.now()
     start = end - timedelta(days=LOOKBACK_DAYS)
@@ -58,10 +80,11 @@ def main():
         "runs": runs,
     }
 
-    with open("data.json", "w") as f:
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    with open(args.out, "w") as f:
         json.dump(out, f)
 
-    print(f"Wrote {len(runs)} runs to data.json")
+    print(f"Wrote {len(runs)} runs to {args.out}")
 
 
 if __name__ == "__main__":
