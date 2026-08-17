@@ -42,12 +42,12 @@ jobs:
           GARMIN_TOKEN_DIR: garmin_tokens
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
-        run: python sync_garmin.py --out docs/data.json
+        run: python sync_garmin.py --out data.json
 
       - name: Commit updated data.json
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data.json
+          git add data.json
           git diff --quiet --cached || git commit -m "Sync Garmin data"
           git push
