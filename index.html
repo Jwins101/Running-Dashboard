@@ -4,7 +4,12 @@
 .rd-header{position:relative;padding:2rem 2rem 1.5rem;border-bottom:1px solid var(--contour);overflow:hidden;}
 .rd-eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin:0 0 4px;display:flex;justify-content:space-between;}
 .rd-title{font-family:'Bebas Neue',sans-serif;font-size:40px;letter-spacing:.03em;margin:0 0 1.1rem;line-height:1;}
-.rd-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;position:relative;z-index:1;}
+.rd-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;position:relative;z-index:1;}
+.rd-stat-heat{border-color:transparent;}
+.rd-stat-heat .rd-stat-val{color:#10161B;}
+.rd-stat-heat .rd-stat-label{color:rgba(16,22,27,0.65);}
+.rd-stat-heat .rd-stat-sub{color:rgba(16,22,27,0.7);}
+.rd-stat-heat::before,.rd-stat-heat::after{border-color:rgba(16,22,27,0.35);}
 .rd-stat{background:var(--surface2);border:1px solid var(--contour);border-radius:8px;padding:12px 14px;position:relative;}
 .rd-stat::before,.rd-stat::after{content:'';position:absolute;width:8px;height:8px;border-color:var(--amber);top:4px;}
 .rd-stat::before{left:4px;border-left:1.5px solid;border-top:1.5px solid}
@@ -116,6 +121,17 @@
     </div>
     <div class="rd-msg" id="rd-msg"></div>
   </div>
+
+  <div class="rd-section">
+    <h2 class="rd-sec-title">Steps, sleep &amp; stress</h2>
+    <p class="rd-sec-sub">Day-over-day wellness metrics</p>
+    <div class="rd-legend">
+      <span><span class="rd-dot" style="background:rgba(143,185,150,0.6)"></span>Steps (left axis)</span>
+      <span><span class="rd-dot" style="background:#E3A857"></span>Sleep score (right axis)</span>
+      <span><span class="rd-dot" style="background:#E2725B"></span>Stress (right axis)</span>
+    </div>
+    <div class="rd-chart-wrap" style="height:260px"><canvas id="rd-wellness" role="img" aria-label="Combined chart of daily steps as bars with sleep score and stress lines over the last two weeks">Steps, sleep, and stress chart</canvas></div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
@@ -124,8 +140,24 @@
 const EMBEDDED_RUNS = [{"date": "2026-04-19", "dist_mi": 1.36, "pace_min_mi": 10.1, "avg_hr": 155.0}, {"date": "2026-04-20", "dist_mi": 3.27, "pace_min_mi": 10.65, "avg_hr": 157.0}, {"date": "2026-04-22", "dist_mi": 3.36, "pace_min_mi": 10.4, "avg_hr": 168.0}, {"date": "2026-04-23", "dist_mi": 2.01, "pace_min_mi": 10.38, "avg_hr": 160.0}, {"date": "2026-04-25", "dist_mi": 5.07, "pace_min_mi": 11.06, "avg_hr": 149.0}, {"date": "2026-04-26", "dist_mi": 2.05, "pace_min_mi": 9.56, "avg_hr": 156.0}, {"date": "2026-04-27", "dist_mi": 3.13, "pace_min_mi": 9.16, "avg_hr": 165.0}, {"date": "2026-04-29", "dist_mi": 3.16, "pace_min_mi": 10.86, "avg_hr": 162.0}, {"date": "2026-05-08", "dist_mi": 2.0, "pace_min_mi": 10.51, "avg_hr": 158.0}, {"date": "2026-05-10", "dist_mi": 3.38, "pace_min_mi": 9.6, "avg_hr": 167.0}, {"date": "2026-05-11", "dist_mi": 3.08, "pace_min_mi": 10.0, "avg_hr": 160.0}, {"date": "2026-05-15", "dist_mi": 3.26, "pace_min_mi": 9.45, "avg_hr": 163.0}, {"date": "2026-05-17", "dist_mi": 3.4, "pace_min_mi": 9.92, "avg_hr": 153.0}, {"date": "2026-05-18", "dist_mi": 3.13, "pace_min_mi": 9.56, "avg_hr": 163.0}, {"date": "2026-05-19", "dist_mi": 3.13, "pace_min_mi": 9.84, "avg_hr": 163.0}, {"date": "2026-05-22", "dist_mi": 2.01, "pace_min_mi": 8.79, "avg_hr": 169.0}, {"date": "2026-05-25", "dist_mi": 3.3, "pace_min_mi": 9.77, "avg_hr": 154.0}, {"date": "2026-05-26", "dist_mi": 3.03, "pace_min_mi": 10.08, "avg_hr": 163.0}, {"date": "2026-05-29", "dist_mi": 4.01, "pace_min_mi": 10.87, "avg_hr": 150.0}, {"date": "2026-05-30", "dist_mi": 4.32, "pace_min_mi": 10.9, "avg_hr": 144.0}, {"date": "2026-05-31", "dist_mi": 4.74, "pace_min_mi": 9.4, "avg_hr": 160.0}, {"date": "2026-06-01", "dist_mi": 3.22, "pace_min_mi": 10.45, "avg_hr": 157.0}, {"date": "2026-06-03", "dist_mi": 4.81, "pace_min_mi": 10.64, "avg_hr": 155.0}, {"date": "2026-06-05", "dist_mi": 3.13, "pace_min_mi": 8.8, "avg_hr": 169.0}, {"date": "2026-06-06", "dist_mi": 4.2, "pace_min_mi": 12.2, "avg_hr": 134.0}, {"date": "2026-06-07", "dist_mi": 5.01, "pace_min_mi": 9.97, "avg_hr": 153.0}, {"date": "2026-06-08", "dist_mi": 3.11, "pace_min_mi": 9.99, "avg_hr": 154.0}, {"date": "2026-06-09", "dist_mi": 5.13, "pace_min_mi": 11.71, "avg_hr": 137.0}, {"date": "2026-06-12", "dist_mi": 4.03, "pace_min_mi": 10.83, "avg_hr": 152.0}, {"date": "2026-06-15", "dist_mi": 3.12, "pace_min_mi": 11.08, "avg_hr": 147.0}, {"date": "2026-06-18", "dist_mi": 5.75, "pace_min_mi": 10.24, "avg_hr": 165.0}, {"date": "2026-06-19", "dist_mi": 4.08, "pace_min_mi": 10.74, "avg_hr": 147.0}, {"date": "2026-06-21", "dist_mi": 4.56, "pace_min_mi": 11.23, "avg_hr": 142.0}, {"date": "2026-06-22", "dist_mi": 4.64, "pace_min_mi": 10.42, "avg_hr": 148.0}, {"date": "2026-06-24", "dist_mi": 4.06, "pace_min_mi": 9.96, "avg_hr": 157.0}, {"date": "2026-06-26", "dist_mi": 5.1, "pace_min_mi": 10.27, "avg_hr": 153.0}, {"date": "2026-06-27", "dist_mi": 4.02, "pace_min_mi": 11.51, "avg_hr": 144.0}, {"date": "2026-06-28", "dist_mi": 4.56, "pace_min_mi": 9.28, "avg_hr": 156.0}, {"date": "2026-07-02", "dist_mi": 3.54, "pace_min_mi": 10.06, "avg_hr": 158.0}, {"date": "2026-07-03", "dist_mi": 7.05, "pace_min_mi": 10.11, "avg_hr": 157.0}, {"date": "2026-07-05", "dist_mi": 4.01, "pace_min_mi": 10.34, "avg_hr": 143.0}, {"date": "2026-07-06", "dist_mi": 4.01, "pace_min_mi": 9.09, "avg_hr": 155.0}, {"date": "2026-07-08", "dist_mi": 4.02, "pace_min_mi": 10.39, "avg_hr": 158.0}, {"date": "2026-07-10", "dist_mi": 4.02, "pace_min_mi": 9.55, "avg_hr": 154.0}, {"date": "2026-07-11", "dist_mi": 7.26, "pace_min_mi": 10.55, "avg_hr": 159.0}, {"date": "2026-07-13", "dist_mi": 5.0, "pace_min_mi": 9.37, "avg_hr": 153.0}, {"date": "2026-07-14", "dist_mi": 4.0, "pace_min_mi": 9.38, "avg_hr": 164.0}, {"date": "2026-07-17", "dist_mi": 5.06, "pace_min_mi": 9.69, "avg_hr": 154.0}, {"date": "2026-07-19", "dist_mi": 5.9, "pace_min_mi": 11.41, "avg_hr": 146.0}, {"date": "2026-07-21", "dist_mi": 7.95, "pace_min_mi": 9.95, "avg_hr": 145.0}, {"date": "2026-07-22", "dist_mi": 2.25, "pace_min_mi": 16.18, "avg_hr": 134.0}, {"date": "2026-07-23", "dist_mi": 4.07, "pace_min_mi": 11.12, "avg_hr": 155.0}, {"date": "2026-07-26", "dist_mi": 6.16, "pace_min_mi": 9.74, "avg_hr": 159.0}, {"date": "2026-07-27", "dist_mi": 4.06, "pace_min_mi": 10.6, "avg_hr": 152.0}, {"date": "2026-07-31", "dist_mi": 4.78, "pace_min_mi": 10.14, "avg_hr": 160.0}, {"date": "2026-08-01", "dist_mi": 8.55, "pace_min_mi": 10.85, "avg_hr": 160.0}, {"date": "2026-08-02", "dist_mi": 3.13, "pace_min_mi": 11.48, "avg_hr": 132.0}, {"date": "2026-08-04", "dist_mi": 4.03, "pace_min_mi": 9.83, "avg_hr": 144.0}, {"date": "2026-08-05", "dist_mi": 3.13, "pace_min_mi": 8.77, "avg_hr": 157.0}, {"date": "2026-08-07", "dist_mi": 5.03, "pace_min_mi": 10.7, "avg_hr": 153.0}, {"date": "2026-08-08", "dist_mi": 5.46, "pace_min_mi": 9.93, "avg_hr": 150.0}, {"date": "2026-08-10", "dist_mi": 4.24, "pace_min_mi": 9.69, "avg_hr": 147.0}, {"date": "2026-08-11", "dist_mi": 4.02, "pace_min_mi": 10.71, "avg_hr": 146.0}, {"date": "2026-08-13", "dist_mi": 4.3, "pace_min_mi": 9.23, "avg_hr": 155.0}, {"date": "2026-08-14", "dist_mi": 5.17, "pace_min_mi": 9.75, "avg_hr": 147.0}, {"date": "2026-08-15", "dist_mi": 9.09, "pace_min_mi": 10.19, "avg_hr": 148.0}];
 const planWeeks = [{"week":"2026-08-17","total":15,"long":6},{"week":"2026-08-24","total":26,"long":10},{"week":"2026-08-31","total":28,"long":11},{"week":"2026-09-07","total":16,"long":5},{"week":"2026-09-14","total":21,"long":10},{"week":"2026-09-21","total":32,"long":13},{"week":"2026-09-28","total":23,"long":9},{"week":"2026-10-05","total":30,"long":12},{"week":"2026-10-12","total":32,"long":13},{"week":"2026-10-19","total":24,"long":10},{"week":"2026-10-26","total":31,"long":13},{"week":"2026-11-02","total":28,"long":13}];
 
+const EMBEDDED_WELLNESS = [{"date":"2026-08-04","steps":10879,"sleep_score":87,"stress":29},{"date":"2026-08-05","steps":11351,"sleep_score":75,"stress":25},{"date":"2026-08-06","steps":3573,"sleep_score":86,"stress":27},{"date":"2026-08-07","steps":14831,"sleep_score":94,"stress":42},{"date":"2026-08-08","steps":18196,"sleep_score":40,"stress":34},{"date":"2026-08-09","steps":7947,"sleep_score":93,"stress":41},{"date":"2026-08-10","steps":10249,"sleep_score":75,"stress":24},{"date":"2026-08-11","steps":14420,"sleep_score":88,"stress":27},{"date":"2026-08-12","steps":3190,"sleep_score":84,"stress":32},{"date":"2026-08-13","steps":9268,"sleep_score":81,"stress":34},{"date":"2026-08-14","steps":12960,"sleep_score":91,"stress":28},{"date":"2026-08-15","steps":22595,"sleep_score":77,"stress":31},{"date":"2026-08-16","steps":13061,"sleep_score":84,"stress":18},{"date":"2026-08-17","steps":9083,"sleep_score":93,"stress":26}];
+
 let loggedRuns = [];
 let historicalRuns = EMBEDDED_RUNS;
+let wellness = EMBEDDED_WELLNESS;
+
+const WEEKDAY_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+function weekdayShort(dateStr){ return WEEKDAY_SHORT[new Date(dateStr+'T00:00:00').getDay()]; }
+
+function stressColor(v){
+  v = Math.max(0, Math.min(100, v==null?50:v));
+  const stops = [ {p:0,c:[143,185,150]}, {p:45,c:[227,168,87]}, {p:100,c:[226,114,91]} ];
+  let lo=stops[0], hi=stops[stops.length-1];
+  for(let i=0;i<stops.length-1;i++){ if(v>=stops[i].p && v<=stops[i+1].p){ lo=stops[i]; hi=stops[i+1]; break; } }
+  const t=(v-lo.p)/((hi.p-lo.p)||1);
+  const c=lo.c.map((ch,i)=>Math.round(ch+(hi.c[i]-ch)*t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
 
 function mondayOf(dateStr){
   const d = new Date(dateStr+'T00:00:00');
@@ -191,11 +223,19 @@ function render(){
   const goalDate = new Date('2026-11-01T00:00:00');
   const daysLeft = Math.max(0, Math.round((goalDate-today)/86400000));
 
+  const yesterdayStr = new Date(today.getTime()-86400000).toISOString().slice(0,10);
+  const yEntry = wellness.find(w=>w.date===yesterdayStr) || wellness[wellness.length-1];
+  const yStress = yEntry ? yEntry.stress : null;
+  const yColor = stressColor(yStress);
+  const yLabel = yStress==null ? '--' : (yStress<=25?'Low':yStress<=45?'Moderate':yStress<=70?'Elevated':'High');
+  const yesterdayStressHtml = `<div class="rd-stat rd-stat-heat" style="background:${yColor}"><p class="rd-stat-label">Stress (prior day)</p><p class="rd-stat-val">${yStress==null?'--':yStress}</p><p class="rd-stat-sub">${yLabel}${yEntry?' · '+yEntry.date.slice(5):''}</p></div>`;
+
   document.getElementById('rd-stat-row').innerHTML = `
     <div class="rd-stat"><p class="rd-stat-label">Longest recent run</p><p class="rd-stat-val">${recentLong.toFixed(1)} mi</p><p class="rd-stat-sub">goal: 13 mi</p></div>
     <div class="rd-stat"><p class="rd-stat-label">Avg pace (last 6)</p><p class="rd-stat-val">${fmtPace(avgPace)}/mi</p><p class="rd-stat-sub">goal: 8:00/mi</p></div>
     <div class="rd-stat"><p class="rd-stat-label">Days to goal</p><p class="rd-stat-val">${daysLeft}</p><p class="rd-stat-sub">by Nov 1</p></div>
     <div class="rd-stat"><p class="rd-stat-label">Last run logged</p><p class="rd-stat-val">${lastRun?lastRun.date.slice(5):'--'}</p><p class="rd-stat-sub">${lastRun?lastRun.dist_mi.toFixed(1)+' mi':''}</p></div>
+    ${yesterdayStressHtml}
   `;
 
   // mileage chart
@@ -298,6 +338,38 @@ function render(){
     wrap.querySelector('.rd-week-head').addEventListener('click', ()=> wrap.classList.toggle('open'));
     weekListEl.appendChild(wrap);
   });
+
+  renderWellnessChart();
+}
+
+let wellnessChartInstance = null;
+function renderWellnessChart(){
+  const sorted = wellness.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const labels = sorted.map(w=> weekdayShort(w.date)+' '+fmtDate(w.date));
+  const steps = sorted.map(w=>w.steps);
+  const sleepScores = sorted.map(w=>w.sleep_score);
+  const stressVals = sorted.map(w=>w.stress);
+
+  if(wellnessChartInstance){ wellnessChartInstance.destroy(); }
+  wellnessChartInstance = new Chart(document.getElementById('rd-wellness'), {
+    data:{
+      labels:labels,
+      datasets:[
+        {type:'bar', label:'Steps', data:steps, backgroundColor:'rgba(143,185,150,0.55)', borderRadius:3, yAxisID:'ySteps', order:2, maxBarThickness:22},
+        {type:'line', label:'Sleep score', data:sleepScores, borderColor:'#E3A857', backgroundColor:'#E3A857', borderWidth:2, pointRadius:3, tension:0.3, yAxisID:'yScore', order:1},
+        {type:'line', label:'Stress', data:stressVals, borderColor:'#E2725B', backgroundColor:'#E2725B', borderWidth:2, pointRadius:3, tension:0.3, yAxisID:'yScore', order:0}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
+      scales:{
+        x:{ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}},
+        ySteps:{position:'left', ticks:{color:'#8A97A3',font:{size:10}}, grid:{color:'#26394A'}, title:{display:true,text:'steps',color:'#8A97A3',font:{size:10}}},
+        yScore:{position:'right', min:0, max:100, ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}, title:{display:true,text:'score / stress (0–100)',color:'#8A97A3',font:{size:10}}}
+      }
+    }
+  });
 }
 
 async function loadLogged(){
@@ -320,6 +392,7 @@ async function loadRemoteData(){
       const json = await resp.json();
       if(json && Array.isArray(json.runs)){
         historicalRuns = json.runs;
+        if(Array.isArray(json.wellness)) wellness = json.wellness;
         srcEl.textContent = json.generated_at ? 'synced '+json.generated_at.slice(0,10) : 'live data.json';
         return;
       }
