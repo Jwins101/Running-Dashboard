@@ -23,6 +23,15 @@ from datetime import datetime, timedelta
 MI = 1609.34
 LOOKBACK_DAYS = 210  # keep ~7 months of history in the file
 
+# South Charlotte / Steele Creek (zip 28278) — used when a run has no GPS
+# start coordinates (indoor treadmill, GPS lock failure, etc.)
+HOME_LAT = 35.102
+HOME_LON = -81.025
+
+WEATHER_ENRICH_DAYS = 21  # only pull GPS+weather for recent runs — pulling
+# it for the full 7-month history would mean hundreds of extra API calls
+# for runs we're not analyzing anyway
+
 
 def _first_present(d, paths):
     """Try several possible nested-key paths against a dict and return the
@@ -44,6 +53,86 @@ def _first_present(d, paths):
         if ok and cur is not None:
             return cur
     return None
+
+
+def get_run_coords(client, activity_id):
+    """Try to get the activity's actual GPS start coordinates. Falls back
+    to home coordinates (South Charlotte, 28278) if the activity has no
+    GPS data, the lookup fails, or the method name doesn't match this
+    library version — this fallback is deliberate, not just a crash guard."""
+    if activity_id is None:
+        return HOME_LAT, HOME_LON, False
+
+    details = None
+    for method_name in ("get_activity", "get_activity_details", "get_activity_summary"):
+        method = getattr(client, method_name, None)
+        if method is None:
+            continue
+        try:
+            details = method(activity_id)
+            if details:
+                break
+        except Exception as e:
+            print(f"  {method_name}({activity_id}) failed: {e}", file=sys.stderr)
+
+    lat = _first_present(
+        details,
+        [
+            ("summaryDTO", "startLatitude"),
+            ("startLatitude",),
+            ("latitude",),
+        ],
+    )
+    lon = _first_present(
+        details,
+        [
+            ("summaryDTO", "startLongitude"),
+            ("startLongitude",),
+            ("longitude",),
+        ],
+    )
+
+    if lat is not None and lon is not None:
+        return lat, lon, True
+    return HOME_LAT, HOME_LON, False
+
+
+def get_temp_for_run(lat, lon, date_str, hour):
+    """Look up temperature/humidity for a specific hour via Open-Meteo's
+    free historical archive API (no key required). Returns (None, None)
+    on any failure rather than raising, so one bad lookup never breaks
+    the whole sync."""
+    try:
+        import requests
+
+        resp = requests.get(
+            "https://archive-api.open-meteo.com/v1/archive",
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "start_date": date_str,
+                "end_date": date_str,
+                "hourly": "temperature_2m,relative_humidity_2m",
+                "temperature_unit": "fahrenheit",
+                "timezone": "America/New_York",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        temps = hourly.get("temperature_2m", [])
+        humid = hourly.get("relative_humidity_2m", [])
+        target = f"{date_str}T{hour:02d}:00"
+        if target in times:
+            idx = times.index(target)
+            t = temps[idx] if idx < len(temps) else None
+            h = humid[idx] if idx < len(humid) else None
+            return t, h
+    except Exception as e:
+        print(f"  weather lookup failed for {date_str} {hour}:00: {e}", file=sys.stderr)
+    return None, None
 
 
 def get_client():
@@ -139,6 +228,7 @@ def main():
         )
 
     runs = []
+    enrich_cutoff = (end - timedelta(days=WEATHER_ENRICH_DAYS)).strftime("%Y-%m-%d")
     for a in activities:
         dist_m = a.get("distance") or 0
         dur_s = a.get("duration") or 0
@@ -146,15 +236,30 @@ def main():
             continue
         dist_mi = dist_m / MI
         pace = (dur_s / 60) / dist_mi
-        start_time = a.get("startTimeLocal", "")[:10]
-        runs.append(
-            {
-                "date": start_time,
-                "dist_mi": round(dist_mi, 2),
-                "pace_min_mi": round(pace, 2),
-                "avg_hr": a.get("averageHR"),
-            }
-        )
+        start_time_full = a.get("startTimeLocal", "")  # e.g. "2026-08-19 19:52:58"
+        start_date = start_time_full[:10]
+
+        record = {
+            "date": start_date,
+            "dist_mi": round(dist_mi, 2),
+            "pace_min_mi": round(pace, 2),
+            "avg_hr": a.get("averageHR"),
+        }
+
+        if start_date >= enrich_cutoff:
+            activity_id = _first_present(a, [("activityId",), ("id",)])
+            lat, lon, used_gps = get_run_coords(client, activity_id)
+            try:
+                hour = int(start_time_full[11:13]) if len(start_time_full) >= 13 else 12
+            except ValueError:
+                hour = 12
+            temp_f, humidity = get_temp_for_run(lat, lon, start_date, hour)
+            record["time"] = start_time_full[11:16] if len(start_time_full) >= 16 else None
+            record["temp_f"] = temp_f
+            record["humidity"] = humidity
+            record["used_gps"] = used_gps  # True = actual run location, False = home fallback
+
+        runs.append(record)
 
     runs.sort(key=lambda r: r["date"])
 
