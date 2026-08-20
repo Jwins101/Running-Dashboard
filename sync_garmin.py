@@ -24,6 +24,28 @@ MI = 1609.34
 LOOKBACK_DAYS = 210  # keep ~7 months of history in the file
 
 
+def _first_present(d, paths):
+    """Try several possible nested-key paths against a dict and return the
+    first one that resolves to a non-None value. Garmin's raw JSON schema
+    for sleep/stress isn't fully documented for this library version, so
+    this hedges against a couple of plausible shapes instead of assuming
+    one and crashing if it's wrong."""
+    if not isinstance(d, dict):
+        return None
+    for path in paths:
+        cur = d
+        ok = True
+        for key in path:
+            if isinstance(cur, dict) and key in cur:
+                cur = cur[key]
+            else:
+                ok = False
+                break
+        if ok and cur is not None:
+            return cur
+    return None
+
+
 def get_client():
     token_dir = os.environ.get("GARMIN_TOKEN_DIR")
     if token_dir:
@@ -55,6 +77,67 @@ def main():
         start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), activitytype="running"
     )
 
+    # Wellness: steps, sleep score, stress — last 14 days only (keeps the
+    # day-over-day chart readable; sleep/stress need one call per day)
+    wellness_days = 14
+    wellness = []
+    steps_start = end - timedelta(days=wellness_days)
+    try:
+        steps_by_date = {
+            d["calendarDate"]: d.get("totalSteps")
+            for d in client.get_daily_steps(
+                steps_start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+            )
+        }
+    except Exception as e:
+        print(f"Could not fetch steps: {e}", file=sys.stderr)
+        steps_by_date = {}
+
+    for i in range(wellness_days):
+        d = (end - timedelta(days=wellness_days - 1 - i)).strftime("%Y-%m-%d")
+        sleep_score = None
+        stress_val = None
+
+        try:
+            sleep = client.get_sleep_data(d)
+            sleep_score = _first_present(
+                sleep,
+                [
+                    ("dailySleepDTO", "sleepScores", "overall", "value"),
+                    ("sleepScores", "overall", "value"),
+                    ("dailySleepDTO", "sleepScores", "overallScore"),
+                    ("overallSleepScore",),
+                ],
+            )
+            if i == 0:
+                print(f"[debug] sleep keys for {d}: {list(sleep.keys()) if isinstance(sleep, dict) else type(sleep)}", file=sys.stderr)
+        except Exception as e:
+            print(f"Could not fetch sleep for {d}: {e}", file=sys.stderr)
+
+        try:
+            stress = client.get_stress_data(d)
+            stress_val = _first_present(
+                stress,
+                [
+                    ("avgStressLevel",),
+                    ("dailyStress", "avgStressLevel"),
+                    ("stats", "avgStressLevel"),
+                ],
+            )
+            if i == 0:
+                print(f"[debug] stress keys for {d}: {list(stress.keys()) if isinstance(stress, dict) else type(stress)}", file=sys.stderr)
+        except Exception as e:
+            print(f"Could not fetch stress for {d}: {e}", file=sys.stderr)
+
+        wellness.append(
+            {
+                "date": d,
+                "steps": steps_by_date.get(d),
+                "sleep_score": sleep_score,
+                "stress": stress_val,
+            }
+        )
+
     runs = []
     for a in activities:
         dist_m = a.get("distance") or 0
@@ -78,6 +161,7 @@ def main():
     out = {
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "runs": runs,
+        "wellness": wellness,
     }
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
