@@ -22,8 +22,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore saved Garmin tokens
+      - name: Restore cached Garmin tokens (from a previous run's refresh)
+        id: cache-tokens
+        uses: actions/cache/restore@v4
+        with:
+          path: garmin_tokens
+          key: garmin-tokens-${{ github.run_id }}
+          restore-keys: |
+            garmin-tokens-
+
+      - name: Bootstrap tokens from secret (first run / cache miss only)
+        if: steps.cache-tokens.outputs.cache-matched-key == ''
         run: |
+          echo "No cached tokens found — bootstrapping from GARMIN_TOKENS_B64 secret"
           echo "${{ secrets.GARMIN_TOKENS_B64 }}" | base64 -d > garmin_tokens.zip
           mkdir -p garmin_tokens_raw
           unzip -o garmin_tokens.zip -d garmin_tokens_raw || true
@@ -35,7 +46,7 @@ jobs:
             exit 1
           fi
           cp "$FOUND" garmin_tokens/garmin_tokens.json
-          echo "Token file placed at garmin_tokens/garmin_tokens.json"
+          echo "Bootstrapped token file from secret"
 
       - name: Run sync
         env:
@@ -43,6 +54,13 @@ jobs:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
         run: python sync_garmin.py --out data.json
+
+      - name: Save refreshed Garmin tokens for next run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: garmin_tokens
+          key: garmin-tokens-${{ github.run_id }}
 
       - name: Commit updated data.json
         run: |
