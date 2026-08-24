@@ -3,7 +3,7 @@ name: Sync Garmin data
 on:
   schedule:
     # 11:00 UTC daily (~7am Eastern) — edit the cron to taste
-    - cron: "0 11 * * *"
+    - cron: "0 13 * * *"
   workflow_dispatch: {}
 
 permissions:
