@@ -71,27 +71,7 @@
     <div id="rd-week-list"></div>
   </div>
 
-  <div class="rd-section">
-    <h2 class="rd-sec-title">Steps, sleep &amp; stress</h2>
-    <p class="rd-sec-sub">Day-over-day wellness metrics</p>
-    <div class="rd-legend">
-      <span><span class="rd-dot" style="background:rgba(143,185,150,0.6)"></span>Steps (left axis)</span>
-      <span><span class="rd-dot" style="background:#E3A857"></span>Sleep score (right axis)</span>
-      <span><span class="rd-dot" style="background:#E2725B"></span>Stress (right axis)</span>
-    </div>
-    <div class="rd-chart-wrap" style="height:260px"><canvas id="rd-wellness" role="img" aria-label="Combined chart of daily steps as bars with sleep score and stress lines over the last two weeks">Steps, sleep, and stress chart</canvas></div>
-  </div>
 
-  <div class="rd-section">
-    <h2 class="rd-sec-title">Weather &amp; pace</h2>
-    <p class="rd-sec-sub">Pace vs. temperature at run time — dot size shows humidity, hover for exact time</p>
-    <div class="rd-legend">
-      <span><span class="rd-dot" style="background:#8FB996"></span>Pace (left axis)</span>
-      <span><span class="rd-dot" style="background:#E3A857"></span>Temperature °F (right axis)</span>
-      <span>Larger dot = more humid</span>
-    </div>
-    <div class="rd-chart-wrap" style="height:260px"><canvas id="rd-weather" role="img" aria-label="Chart of running pace and temperature over the last three weeks, with dot size indicating humidity">Weather and pace chart</canvas></div>
-  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
@@ -294,100 +274,6 @@ function render(){
     `;
     wrap.addEventListener('click', ()=> { window.location.href = 'week.html?plan='+PLAN_ID+'&week='+p.week; });
     weekListEl.appendChild(wrap);
-  });
-
-  renderWellnessChart();
-  renderWeatherChart();
-}
-
-let wellnessChartInstance = null;
-function renderWellnessChart(){
-  const sorted = wellness.slice().sort((a,b)=>a.date.localeCompare(b.date));
-  const labels = sorted.map(w=> weekdayShort(w.date)+' '+fmtDate(w.date));
-  const steps = sorted.map(w=>w.steps);
-  const sleepScores = sorted.map(w=>w.sleep_score);
-  const stressVals = sorted.map(w=>w.stress);
-
-  if(wellnessChartInstance){ wellnessChartInstance.destroy(); }
-  wellnessChartInstance = new Chart(document.getElementById('rd-wellness'), {
-    data:{
-      labels:labels,
-      datasets:[
-        {type:'bar', label:'Steps', data:steps, backgroundColor:'rgba(143,185,150,0.55)', borderRadius:3, yAxisID:'ySteps', order:2, maxBarThickness:22},
-        {type:'line', label:'Sleep score', data:sleepScores, borderColor:'#E3A857', backgroundColor:'#E3A857', borderWidth:2, pointRadius:3, tension:0.3, yAxisID:'yScore', order:1},
-        {type:'line', label:'Stress', data:stressVals, borderColor:'#E2725B', backgroundColor:'#E2725B', borderWidth:2, pointRadius:3, tension:0.3, yAxisID:'yScore', order:0}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
-      scales:{
-        x:{ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}},
-        ySteps:{position:'left', ticks:{color:'#8A97A3',font:{size:10}}, grid:{color:'#26394A'}, title:{display:true,text:'steps',color:'#8A97A3',font:{size:10}}},
-        yScore:{position:'right', min:0, max:100, ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}, title:{display:true,text:'score / stress (0–100)',color:'#8A97A3',font:{size:10}}}
-      }
-    }
-  });
-}
-
-let weatherChartInstance = null;
-function renderWeatherChart(){
-  const allRuns = historicalRuns.filter(r => r.date >= PLAN_START);
-  const withWeather = allRuns
-    .filter(r => r.temp_f != null)
-    .sort((a,b)=>a.date.localeCompare(b.date));
-
-  const canvas = document.getElementById('rd-weather');
-  if(!canvas) return;
-  if(weatherChartInstance){ weatherChartInstance.destroy(); weatherChartInstance = null; }
-
-  if(withWeather.length === 0){
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    return;
-  }
-
-  const labels = withWeather.map(r => weekdayShort(r.date)+' '+fmtDate(r.date));
-  const paceData = withWeather.map(r => r.pace_min_mi);
-  const tempData = withWeather.map(r => r.temp_f);
-  const humidities = withWeather.map(r => r.humidity==null?50:r.humidity);
-  const radii = humidities.map(h => 3 + (Math.max(0,Math.min(100,h))/100)*8);
-  const times = withWeather.map(r => r.time || null);
-  const usedGps = withWeather.map(r => r.used_gps);
-
-  weatherChartInstance = new Chart(canvas, {
-    data:{
-      labels:labels,
-      datasets:[
-        {type:'line', label:'Pace', data:paceData, borderColor:'#8FB996', backgroundColor:'#8FB996', borderWidth:2, pointRadius:radii, pointHoverRadius:radii.map(r=>r+2), tension:0.3, yAxisID:'yPace'},
-        {type:'line', label:'Temperature', data:tempData, borderColor:'#E3A857', backgroundColor:'#E3A857', borderWidth:2, pointRadius:3, tension:0.3, yAxisID:'yTemp'}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{
-        legend:{display:false},
-        tooltip:{
-          callbacks:{
-            label: c => {
-              const i = c.dataIndex;
-              if(c.dataset.label==='Pace'){
-                const t = times[i] ? ' at '+times[i] : '';
-                const h = humidities[i]!=null ? humidities[i]+'% humidity' : '';
-                const src = usedGps[i]===false ? ' (home location)' : '';
-                return 'Pace '+fmtPace(c.raw)+'/mi'+t+src+(h?', '+h:'');
-              }
-              return 'Temp '+Math.round(c.raw)+'°F';
-            }
-          }
-        }
-      },
-      scales:{
-        x:{ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}},
-        yPace:{position:'left', reverse:true, ticks:{color:'#8A97A3',font:{size:10},callback:v=>fmtPace(v)}, grid:{color:'#26394A'}, title:{display:true,text:'pace (min/mi)',color:'#8A97A3',font:{size:10}}},
-        yTemp:{position:'right', ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}, title:{display:true,text:'°F',color:'#8A97A3',font:{size:10}}}
-      }
-    }
   });
 }
 

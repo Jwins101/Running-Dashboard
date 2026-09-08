@@ -29,8 +29,9 @@
 
   <div class="land-chart-card">
     <h2 class="rd-sec-title">Miles by month</h2>
-    <p class="rd-sec-sub" id="land-chart-sub">This year's progression</p>
-    <div class="rd-chart-wrap" style="height:220px"><canvas id="land-months-chart" role="img" aria-label="Bar chart of miles run per month this year">Miles per month chart</canvas></div>
+    <p class="rd-sec-sub" id="land-chart-sub">This year's progression — click a month to see the runs</p>
+    <div class="rd-chart-wrap" style="height:220px"><canvas id="land-months-chart" role="img" aria-label="Bar chart of miles run per month this year, click a month to see its runs">Miles per month chart</canvas></div>
+    <div id="land-month-runs" style="margin-top:14px"></div>
   </div>
 
   <h2 class="rd-sec-title" style="margin-bottom:10px">Training blocks</h2>
@@ -52,6 +53,45 @@
     </a>
   </div>
 
+  <div class="rd-root" style="margin-top:24px">
+    <div class="rd-section">
+      <h2 class="rd-sec-title">Pace &amp; heart rate trends</h2>
+      <p class="rd-sec-sub">Long-term view across everything logged, not just the current training block</p>
+      <div class="rd-row2">
+        <div>
+          <div class="rd-legend"><span><span class="rd-dot" style="background:#E3A857"></span>Avg pace (min/mi)</span></div>
+          <div class="rd-chart-wrap" style="height:190px"><canvas id="land-pace" role="img" aria-label="Line chart of weekly average running pace over the full training history">Pace trend chart</canvas></div>
+        </div>
+        <div>
+          <div class="rd-legend"><span><span class="rd-dot" style="background:#E2725B"></span>Avg heart rate (bpm)</span></div>
+          <div class="rd-chart-wrap" style="height:190px"><canvas id="land-hr" role="img" aria-label="Line chart of weekly average heart rate over the full training history">Heart rate trend chart</canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rd-section">
+      <h2 class="rd-sec-title">Steps, sleep &amp; stress</h2>
+      <p class="rd-sec-sub">Day-over-day wellness metrics, most recent 90 days</p>
+      <div class="rd-legend">
+        <span><span class="rd-dot" style="background:rgba(143,185,150,0.6)"></span>Steps (left axis)</span>
+        <span><span class="rd-dot" style="background:#E3A857"></span>Sleep score (right axis)</span>
+        <span><span class="rd-dot" style="background:#E2725B"></span>Stress (right axis)</span>
+      </div>
+      <div class="rd-chart-wrap" style="height:260px"><canvas id="land-wellness" role="img" aria-label="Combined chart of daily steps as bars with sleep score and stress lines">Steps, sleep, and stress chart</canvas></div>
+    </div>
+
+    <div class="rd-section">
+      <h2 class="rd-sec-title">Weather &amp; pace</h2>
+      <p class="rd-sec-sub">Pace vs. temperature at run time — dot size shows humidity, hover for exact time</p>
+      <div class="rd-legend">
+        <span><span class="rd-dot" style="background:#8FB996"></span>Pace (left axis)</span>
+        <span><span class="rd-dot" style="background:#E3A857"></span>Temperature °F (right axis)</span>
+        <span>Larger dot = more humid</span>
+      </div>
+      <div class="rd-chart-wrap" style="height:260px"><canvas id="land-weather" role="img" aria-label="Chart of running pace and temperature, with dot size indicating humidity">Weather and pace chart</canvas></div>
+    </div>
+  </div>
+
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
@@ -59,19 +99,24 @@
 (function(){
 
 function fmtNum(n){ return n.toLocaleString('en-US', {maximumFractionDigits: 0}); }
+function fmtPace(p){ if(p==null) return '—'; const m=Math.floor(p), s=Math.round((p-m)*60); return m+':'+String(s).padStart(2,'0'); }
+function mondayOf(dateStr){ const d=new Date(dateStr+'T00:00:00'); const day=(d.getDay()+6)%7; d.setDate(d.getDate()-day); return d.toISOString().slice(0,10); }
 
 async function loadData(){
   try{
     const resp = await fetch('./data.json', {cache:'no-store'});
     if(resp.ok){
       const json = await resp.json();
-      if(Array.isArray(json.runs)) return json.runs;
+      return {
+        runs: Array.isArray(json.runs) ? json.runs : [],
+        wellness: Array.isArray(json.wellness) ? json.wellness : []
+      };
     }
   }catch(e){}
-  return [];
+  return {runs: [], wellness: []};
 }
 
-function render(runs){
+function render({runs, wellness}){
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth(); // 0-indexed
@@ -92,17 +137,33 @@ function render(runs){
     <div class="rd-stat"><p class="rd-stat-label">Total runs logged</p><p class="rd-stat-val">${fmtNum(totalRuns)}</p><p class="rd-stat-sub">and counting</p></div>
   `;
 
-  document.getElementById('land-chart-sub').textContent = `${currentYear} progression — ${fmtNum(milesThisYear)} miles so far`;
+  document.getElementById('land-chart-sub').textContent = `${currentYear} progression — ${fmtNum(milesThisYear)} miles so far — click a month to see the runs`;
 
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const monthTotals = new Array(12).fill(0);
+  const runsByMonth = Array.from({length:12}, () => []);
   thisYearRuns.forEach(r => {
     const m = new Date(r.date+'T00:00:00').getMonth();
     monthTotals[m] += (r.dist_mi||0);
+    runsByMonth[m].push(r);
   });
 
   const pastData = monthTotals.map((v,i) => i <= currentMonth ? +v.toFixed(1) : null);
   const futureData = monthTotals.map((v,i) => i >= currentMonth ? (i===currentMonth ? +v.toFixed(1) : 0) : null);
+
+  function showMonthRuns(monthIndex){
+    const el = document.getElementById('land-month-runs');
+    const monthRuns = runsByMonth[monthIndex].slice().sort((a,b)=>a.date.localeCompare(b.date));
+    if(monthRuns.length === 0){
+      el.innerHTML = `<div class="rd-week"><div class="rd-empty-week" style="padding:12px 16px">No runs logged in ${monthNames[monthIndex]} ${currentYear} yet.</div></div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="rd-week" style="cursor:default">
+        <div class="rd-actuals-label" style="padding:10px 16px 4px">${monthNames[monthIndex]} ${currentYear} — ${monthRuns.length} run${monthRuns.length===1?'':'s'}, ${fmtNum(monthTotals[monthIndex])} mi</div>
+        ${monthRuns.map(r=>`<div class="rd-run-row" style="padding-left:16px"><b>${r.date.slice(5)}</b><span>${r.dist_mi.toFixed(2)} mi</span><span>${fmtPace(r.pace_min_mi)}/mi</span><span>${r.avg_hr?Math.round(r.avg_hr)+' bpm':'—'}</span></div>`).join('')}
+      </div>`;
+  }
 
   new Chart(document.getElementById('land-months-chart'), {
     type: 'bar',
@@ -115,13 +176,136 @@ function render(runs){
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      onClick: (evt, elements) => { if(elements.length) showMonthRuns(elements[0].index); },
+      onHover: (evt, elements) => { evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: c => (c.raw==null ? 'No data' : c.raw + ' mi') } }
+        tooltip: { callbacks: { label: c => (c.raw==null ? 'No data' : c.raw + ' mi — click to see runs') } }
       },
       scales: {
         x: { ticks: { color: '#8A97A3', font: { size: 11 } }, grid: { display: false } },
         y: { ticks: { color: '#8A97A3', font: { size: 10 } }, grid: { color: '#26394A' }, title: { display: true, text: 'miles', color: '#8A97A3', font: { size: 10 } } }
+      }
+    }
+  });
+
+  renderPaceHrTrends(runs);
+  renderWellnessChart(wellness);
+  renderWeatherChart(runs);
+}
+
+function weeklyAgg(runs){
+  const weeks = {};
+  runs.forEach(r=>{
+    const w = mondayOf(r.date);
+    if(!weeks[w]) weeks[w]={hrSum:0,hrN:0,paceSum:0,n:0};
+    if(r.avg_hr){weeks[w].hrSum+=r.avg_hr; weeks[w].hrN++;}
+    weeks[w].paceSum += r.pace_min_mi;
+    weeks[w].n++;
+  });
+  return weeks;
+}
+
+function renderPaceHrTrends(runs){
+  const weeks = weeklyAgg(runs);
+  const sortedWeekKeys = Object.keys(weeks).sort();
+  const shortLabel = w => { const d=new Date(w+'T00:00:00'); return (d.getMonth()+1)+'/'+d.getDate(); };
+
+  const paceLabels=[], paceData=[];
+  sortedWeekKeys.forEach(w=>{ if(weeks[w].n>0){ paceLabels.push(shortLabel(w)); paceData.push(+(weeks[w].paceSum/weeks[w].n).toFixed(2)); }});
+  new Chart(document.getElementById('land-pace'), {
+    type:'line',
+    data:{labels:paceLabels, datasets:[{data:paceData, borderColor:'#E3A857', backgroundColor:'rgba(227,168,87,0.1)', fill:true, borderWidth:2, pointRadius:2, tension:0.3}]},
+    options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>fmtPace(c.raw)+'/mi'}}},
+      scales:{
+        x:{ticks:{color:'#8A97A3',font:{size:9},maxRotation:45,autoSkip:true},grid:{display:false}},
+        y:{reverse:true, ticks:{color:'#8A97A3',font:{size:10},callback:v=>fmtPace(v)},grid:{color:'#26394A'}}
+      }}
+  });
+
+  const hrLabels=[], hrData=[];
+  sortedWeekKeys.forEach(w=>{ if(weeks[w].hrN>0){ hrLabels.push(shortLabel(w)); hrData.push(Math.round(weeks[w].hrSum/weeks[w].hrN)); }});
+  new Chart(document.getElementById('land-hr'), {
+    type:'line',
+    data:{labels:hrLabels, datasets:[{data:hrData, borderColor:'#E2725B', backgroundColor:'rgba(226,114,91,0.1)', fill:true, borderWidth:2, pointRadius:2, tension:0.3}]},
+    options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw+' bpm'}}},
+      scales:{
+        x:{ticks:{color:'#8A97A3',font:{size:9},maxRotation:45,autoSkip:true},grid:{display:false}},
+        y:{ticks:{color:'#8A97A3',font:{size:10}},grid:{color:'#26394A'}}
+      }}
+  });
+}
+
+function renderWellnessChart(wellness){
+  const sorted = wellness.slice().sort((a,b)=>a.date.localeCompare(b.date)).slice(-90);
+  const WEEKDAY_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const labels = sorted.map(w => { const d=new Date(w.date+'T00:00:00'); return WEEKDAY_SHORT[d.getDay()]+' '+(d.getMonth()+1)+'/'+d.getDate(); });
+  const steps = sorted.map(w=>w.steps);
+  const sleepScores = sorted.map(w=>w.sleep_score);
+  const stressVals = sorted.map(w=>w.stress);
+
+  new Chart(document.getElementById('land-wellness'), {
+    data:{
+      labels:labels,
+      datasets:[
+        {type:'bar', label:'Steps', data:steps, backgroundColor:'rgba(143,185,150,0.55)', borderRadius:3, yAxisID:'ySteps', order:2, maxBarThickness:14},
+        {type:'line', label:'Sleep score', data:sleepScores, borderColor:'#E3A857', backgroundColor:'#E3A857', borderWidth:2, pointRadius:2, tension:0.3, yAxisID:'yScore', order:1},
+        {type:'line', label:'Stress', data:stressVals, borderColor:'#E2725B', backgroundColor:'#E2725B', borderWidth:2, pointRadius:2, tension:0.3, yAxisID:'yScore', order:0}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
+      scales:{
+        x:{ticks:{color:'#8A97A3',font:{size:9},maxRotation:45,autoSkip:true}, grid:{display:false}},
+        ySteps:{position:'left', ticks:{color:'#8A97A3',font:{size:10}}, grid:{color:'#26394A'}, title:{display:true,text:'steps',color:'#8A97A3',font:{size:10}}},
+        yScore:{position:'right', min:0, max:100, ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}, title:{display:true,text:'score / stress (0–100)',color:'#8A97A3',font:{size:10}}}
+      }
+    }
+  });
+}
+
+function renderWeatherChart(runs){
+  const withWeather = runs.filter(r => r.temp_f != null).sort((a,b)=>a.date.localeCompare(b.date)).slice(-90);
+  const canvas = document.getElementById('land-weather');
+  if(!canvas || withWeather.length === 0) return;
+
+  const WEEKDAY_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const labels = withWeather.map(r => { const d=new Date(r.date+'T00:00:00'); return WEEKDAY_SHORT[d.getDay()]+' '+(d.getMonth()+1)+'/'+d.getDate(); });
+  const paceData = withWeather.map(r => r.pace_min_mi);
+  const tempData = withWeather.map(r => r.temp_f);
+  const humidities = withWeather.map(r => r.humidity==null?50:r.humidity);
+  const radii = humidities.map(h => 3 + (Math.max(0,Math.min(100,h))/100)*8);
+  const times = withWeather.map(r => r.time || null);
+
+  new Chart(canvas, {
+    data:{
+      labels:labels,
+      datasets:[
+        {type:'line', label:'Pace', data:paceData, borderColor:'#8FB996', backgroundColor:'#8FB996', borderWidth:2, pointRadius:radii, pointHoverRadius:radii.map(r=>r+2), tension:0.3, yAxisID:'yPace'},
+        {type:'line', label:'Temperature', data:tempData, borderColor:'#E3A857', backgroundColor:'#E3A857', borderWidth:2, pointRadius:3, tension:0.3, yAxisID:'yTemp'}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label: c => {
+          const i = c.dataIndex;
+          if(c.dataset.label==='Pace'){
+            const t = times[i] ? ' at '+times[i] : '';
+            const h = humidities[i]!=null ? humidities[i]+'% humidity' : '';
+            return 'Pace '+fmtPace(c.raw)+'/mi'+t+(h?', '+h:'');
+          }
+          return 'Temp '+Math.round(c.raw)+'°F';
+        }}}
+      },
+      scales:{
+        x:{ticks:{color:'#8A97A3',font:{size:9},maxRotation:45,autoSkip:true}, grid:{display:false}},
+        yPace:{position:'left', reverse:true, ticks:{color:'#8A97A3',font:{size:10},callback:v=>fmtPace(v)}, grid:{color:'#26394A'}, title:{display:true,text:'pace (min/mi)',color:'#8A97A3',font:{size:10}}},
+        yTemp:{position:'right', ticks:{color:'#8A97A3',font:{size:10}}, grid:{display:false}, title:{display:true,text:'°F',color:'#8A97A3',font:{size:10}}}
       }
     }
   });
