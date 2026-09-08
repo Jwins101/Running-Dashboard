@@ -60,6 +60,28 @@ def _first_present(d, paths):
     return None
 
 
+def run_signature(r):
+    """A fallback identity for a run when Garmin's activity ID isn't
+    available (or wasn't captured yet, as with runs saved by the old
+    pre-archive version of this script). Two runs on the same date with
+    the same distance and pace are treated as the same run."""
+    return (r.get("date"), round(r.get("dist_mi") or 0, 2), round(r.get("pace_min_mi") or 0, 2))
+
+
+def dedupe_runs(runs):
+    """Collapse any duplicate runs already sitting in the archive — this
+    is what heals a file that got doubled by the id-less migration bug,
+    without needing a separate one-off cleanup script. Keeps whichever
+    copy has richer data (splits) if there's a conflict."""
+    best = {}
+    for r in runs:
+        sig = r.get("id") if r.get("id") is not None else run_signature(r)
+        existing = best.get(sig)
+        if existing is None or (len(r.get("splits") or []) > len(existing.get("splits") or [])):
+            best[sig] = r
+    return list(best.values())
+
+
 def load_archive(path):
     """Load the existing permanent archive, if one exists. Returns a dict
     with 'runs' and 'wellness' lists — empty lists if this is the first
@@ -70,6 +92,11 @@ def load_archive(path):
                 data = json.load(f)
             data.setdefault("runs", [])
             data.setdefault("wellness", [])
+            before = len(data["runs"])
+            data["runs"] = dedupe_runs(data["runs"])
+            removed = before - len(data["runs"])
+            if removed:
+                print(f"Cleaned up {removed} duplicate run(s) found in existing archive")
             return data
         except Exception as e:
             print(f"Could not read existing archive at {path}, starting fresh: {e}", file=sys.stderr)
@@ -210,6 +237,7 @@ def main():
 
     archive = load_archive(args.out)
     existing_ids = {r["id"] for r in archive["runs"] if r.get("id") is not None}
+    existing_signatures = {run_signature(r) for r in archive["runs"]}
     is_first_run = len(archive["runs"]) == 0
 
     client = get_client()
@@ -239,8 +267,6 @@ def main():
     new_runs = []
     for a in activities:
         activity_id = _first_present(a, [("activityId",), ("id",)])
-        if activity_id is not None and activity_id in existing_ids:
-            continue  # already archived, nothing to do
 
         dist_m = a.get("distance") or 0
         dur_s = a.get("duration") or 0
@@ -250,6 +276,11 @@ def main():
         pace = (dur_s / 60) / dist_mi
         start_time_full = a.get("startTimeLocal", "")  # e.g. "2026-08-19 19:52:58"
         start_date = start_time_full[:10]
+
+        sig = (start_date, round(dist_mi, 2), round(pace, 2))
+        if (activity_id is not None and activity_id in existing_ids) or sig in existing_signatures:
+            continue  # already archived, nothing to do — checked both ways since
+            # older archive entries (pre-permanent-archive) have no ID at all
 
         record = {
             "id": activity_id,
@@ -278,6 +309,7 @@ def main():
         new_runs.append(record)
         if activity_id is not None:
             existing_ids.add(activity_id)
+        existing_signatures.add(sig)
 
     archive["runs"].extend(new_runs)
     archive["runs"].sort(key=lambda r: r["date"])

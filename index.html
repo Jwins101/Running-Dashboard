@@ -151,8 +151,16 @@ function render({runs, wellness}){
   const pastData = monthTotals.map((v,i) => i <= currentMonth ? +v.toFixed(1) : null);
   const futureData = monthTotals.map((v,i) => i >= currentMonth ? (i===currentMonth ? +v.toFixed(1) : 0) : null);
 
+  let openMonthIndex = null;
   function showMonthRuns(monthIndex){
     const el = document.getElementById('land-month-runs');
+    if(openMonthIndex === monthIndex){
+      // clicking the already-open month again collapses it
+      openMonthIndex = null;
+      el.innerHTML = '';
+      return;
+    }
+    openMonthIndex = monthIndex;
     const monthRuns = runsByMonth[monthIndex].slice().sort((a,b)=>a.date.localeCompare(b.date));
     if(monthRuns.length === 0){
       el.innerHTML = `<div class="rd-week"><div class="rd-empty-week" style="padding:12px 16px">No runs logged in ${monthNames[monthIndex]} ${currentYear} yet.</div></div>`;
