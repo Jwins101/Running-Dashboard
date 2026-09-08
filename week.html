@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Week Detail — Jwins Running Journey</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page-wrap">
+  <a href="road-to-13.html" class="back-link" id="wk-back-link">&larr; Back to plan</a>
+
+  <div class="week-detail-header">
+    <p class="rd-eyebrow" style="margin-bottom:6px"><span id="wk-plan-name">Loading…</span></p>
+    <h1 class="rd-title" id="wk-range" style="font-size:34px">—</h1>
+    <div class="rd-legend" id="wk-targets" style="margin-top:10px"></div>
+  </div>
+
+  <div class="rd-root" style="margin-bottom:20px">
+    <div class="rd-section">
+      <h2 class="rd-sec-title">Planned this week</h2>
+      <div id="wk-plan-block"></div>
+    </div>
+  </div>
+
+  <h2 class="rd-sec-title" style="margin-bottom:10px">Runs this week</h2>
+  <div id="wk-runs-list"></div>
+</div>
+
+<script src="plan-data.js"></script>
+<script>
+(function(){
+
+function qs(name){
+  const params = new URLSearchParams(window.location.search);
+  return params.get(name);
+}
+function addDays(dateStr,n){ const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function fmtDateLong(w){ const d=new Date(w+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function fmtPace(p){ if(p==null) return '—'; const m=Math.floor(p), s=Math.round((p-m)*60); return m+':'+String(s).padStart(2,'0'); }
+const WEEKDAY_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+function weekdayShort(dateStr){ return WEEKDAY_SHORT[new Date(dateStr+'T00:00:00').getDay()]; }
+
+const week = qs('week');
+const planParam = qs('plan') || PLAN_ID;
+
+document.getElementById('wk-plan-name').textContent = (planParam === PLAN_ID ? PLAN_NAME : planParam) + ' — Week Detail';
+
+if(!week){
+  document.getElementById('wk-range').textContent = 'No week specified';
+} else {
+  const rangeEnd = addDays(week, 6);
+  document.getElementById('wk-range').textContent = fmtDateLong(week) + '–' + fmtDateLong(rangeEnd);
+
+  const planWeek = planWeeks.find(p => p.week === week);
+  const detail = PLAN_DETAILS[week];
+
+  if(planWeek){
+    document.getElementById('wk-targets').innerHTML =
+      `<span>Target volume: <b style="color:var(--text)">${planWeek.total} mi</b></span>` +
+      `<span>Target long run: <b style="color:var(--text)">${planWeek.long} mi</b></span>`;
+  }
+
+  const planBlockEl = document.getElementById('wk-plan-block');
+  if(detail){
+    planBlockEl.innerHTML = `
+      <div class="rd-plan-row"><span class="rd-plan-label">Long run</span><span class="rd-plan-val">${detail.longRun}</span></div>
+      <div class="rd-plan-row"><span class="rd-plan-label">Tempo/Speed</span><span class="rd-plan-val">${detail.tempo}</span></div>
+      <div class="rd-plan-row"><span class="rd-plan-label">Easy runs</span><span class="rd-plan-val">${detail.easy}</span></div>
+      ${detail.note ? `<div class="rd-plan-note">${detail.note}</div>` : ''}
+    `;
+  } else {
+    planBlockEl.innerHTML = `<p class="rd-sec-sub">No plan details recorded for this week.</p>`;
+  }
+
+  async function loadRuns(){
+    const listEl = document.getElementById('wk-runs-list');
+    let runs = [];
+    try{
+      const resp = await fetch('./data.json', {cache:'no-store'});
+      if(resp.ok){
+        const json = await resp.json();
+        if(Array.isArray(json.runs)) runs = json.runs;
+      }
+    }catch(e){}
+
+    const weekRuns = runs.filter(r => r.date >= week && r.date <= rangeEnd).sort((a,b)=>a.date.localeCompare(b.date));
+
+    if(weekRuns.length === 0){
+      listEl.innerHTML = `<div class="rd-root"><div class="rd-section"><p class="rd-sec-sub" style="margin:0">No runs logged for this week yet.</p></div></div>`;
+      return;
+    }
+
+    listEl.innerHTML = weekRuns.map(r => {
+      const dayLabel = weekdayShort(r.date) + ' ' + fmtDateLong(r.date);
+      const splitsHtml = (r.splits && r.splits.length)
+        ? `<table class="wk-splits-table">
+             <thead><tr><th>Split</th><th>Distance</th><th>Pace</th><th>Avg HR</th></tr></thead>
+             <tbody>${r.splits.map((s,i)=>`<tr><td>${i+1}</td><td>${s.dist_mi.toFixed(2)} mi</td><td>${fmtPace(s.pace_min_mi)}/mi</td><td>${s.avg_hr?s.avg_hr+' bpm':'—'}</td></tr>`).join('')}</tbody>
+           </table>`
+        : `<div class="wk-no-splits">No split data captured for this run.</div>`;
+
+      const weatherLine = (r.temp_f != null)
+        ? `<span class="rd-metric">${Math.round(r.temp_f)}°F${r.humidity!=null?', '+Math.round(r.humidity)+'% humidity':''}${r.time?' at '+r.time:''}</span>`
+        : '';
+
+      return `
+        <div class="wk-run-card">
+          <div class="wk-run-head">
+            <div><div class="rd-stat-label">${dayLabel}</div></div>
+            <div><div class="rd-stat-label">Distance</div><div class="wk-run-head-val">${r.dist_mi.toFixed(2)} mi</div></div>
+            <div><div class="rd-stat-label">Pace</div><div class="wk-run-head-val">${fmtPace(r.pace_min_mi)}/mi</div></div>
+            <div><div class="rd-stat-label">Avg HR</div><div class="wk-run-head-val">${r.avg_hr?Math.round(r.avg_hr):'—'} bpm</div></div>
+          </div>
+          ${weatherLine ? `<div style="padding:8px 18px 0">${weatherLine}</div>` : ''}
+          ${splitsHtml}
+        </div>
+      `;
+    }).join('');
+  }
+
+  loadRuns();
+}
+})();
+</script>
+</body>
+</html>

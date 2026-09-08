@@ -1,7 +1,13 @@
 """
-Pulls recent running activities from Garmin Connect and writes data.json
-in the format the dashboard expects. Run on a schedule via
-.github/workflows/sync.yml.
+Pulls running activities from Garmin Connect and merges them into a
+PERMANENT, ever-growing archive at --out (default data.json). Unlike the
+original version of this script, nothing is ever dropped or overwritten
+wholesale — new runs are appended, existing ones are left alone, and the
+file only grows over time. Run on a schedule via .github/workflows/sync.yml.
+
+First run (no existing archive found): backfills ~13 months of history.
+Every run after that: only fetches a short recent window and skips any
+activity already present in the archive (matched by Garmin's activity ID).
 
 Points GARMINTOKENS at a folder containing a previously-saved
 garmin_tokens.json (generated locally via generate_garmin_tokens.py, from
@@ -21,24 +27,23 @@ import sys
 from datetime import datetime, timedelta
 
 MI = 1609.34
-LOOKBACK_DAYS = 210  # keep ~7 months of history in the file
+
+INITIAL_BACKFILL_DAYS = 400   # only used the very first time, no archive exists yet
+INCREMENTAL_LOOKBACK_DAYS = 10  # small overlap window on every run after that
+WELLNESS_REFRESH_DAYS = 21     # re-check/refresh wellness for the last N days each run
 
 # South Charlotte / Steele Creek (zip 28278) — used when a run has no GPS
 # start coordinates (indoor treadmill, GPS lock failure, etc.)
 HOME_LAT = 35.102
 HOME_LON = -81.025
 
-WEATHER_ENRICH_DAYS = 21  # only pull GPS+weather for recent runs — pulling
-# it for the full 7-month history would mean hundreds of extra API calls
-# for runs we're not analyzing anyway
-
 
 def _first_present(d, paths):
     """Try several possible nested-key paths against a dict and return the
     first one that resolves to a non-None value. Garmin's raw JSON schema
-    for sleep/stress isn't fully documented for this library version, so
-    this hedges against a couple of plausible shapes instead of assuming
-    one and crashing if it's wrong."""
+    isn't fully documented for this library version, so this hedges
+    against a couple of plausible shapes instead of assuming one and
+    crashing if it's wrong."""
     if not isinstance(d, dict):
         return None
     for path in paths:
@@ -53,6 +58,66 @@ def _first_present(d, paths):
         if ok and cur is not None:
             return cur
     return None
+
+
+def load_archive(path):
+    """Load the existing permanent archive, if one exists. Returns a dict
+    with 'runs' and 'wellness' lists — empty lists if this is the first
+    run ever."""
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            data.setdefault("runs", [])
+            data.setdefault("wellness", [])
+            return data
+        except Exception as e:
+            print(f"Could not read existing archive at {path}, starting fresh: {e}", file=sys.stderr)
+    return {"runs": [], "wellness": []}
+
+
+def get_run_splits(client, activity_id):
+    """Fetch mile-by-mile (or lap-by-lap) splits for an activity. Tries a
+    couple of plausible method names since the exact API surface isn't
+    fully confirmed for this library version. Returns an empty list
+    (never raises) if nothing usable comes back — a run with no splits
+    data is fine, a crashed sync is not."""
+    if activity_id is None:
+        return []
+
+    raw = None
+    for method_name in ("get_activity_splits", "get_activity_split_summaries", "get_activity_typed_splits"):
+        method = getattr(client, method_name, None)
+        if method is None:
+            continue
+        try:
+            raw = method(activity_id)
+            if raw:
+                break
+        except Exception as e:
+            print(f"  {method_name}({activity_id}) failed: {e}", file=sys.stderr)
+
+    lap_list = _first_present(raw, [("lapDTOs",), ("splits",)]) if isinstance(raw, dict) else raw
+    if not isinstance(lap_list, list):
+        return []
+
+    splits = []
+    for lap in lap_list:
+        if not isinstance(lap, dict):
+            continue
+        dist_m = _first_present(lap, [("distance",), ("distanceInMeters",), ("distanceMeters",)])
+        dur_s = _first_present(lap, [("duration",), ("elapsedDuration",), ("movingDuration",)])
+        hr = _first_present(lap, [("averageHR",), ("avgHR",), ("averageHeartRateInBeatsPerMinute",)])
+        if not dist_m or not dur_s or dist_m <= 0 or dur_s <= 0:
+            continue
+        dist_mi = dist_m / MI
+        pace = (dur_s / 60) / dist_mi
+        splits.append({
+            "dist_mi": round(dist_mi, 2),
+            "pace_min_mi": round(pace, 2),
+            "avg_hr": round(hr) if hr else None,
+        })
+    return splits
 
 
 def get_run_coords(client, activity_id):
@@ -75,22 +140,8 @@ def get_run_coords(client, activity_id):
         except Exception as e:
             print(f"  {method_name}({activity_id}) failed: {e}", file=sys.stderr)
 
-    lat = _first_present(
-        details,
-        [
-            ("summaryDTO", "startLatitude"),
-            ("startLatitude",),
-            ("latitude",),
-        ],
-    )
-    lon = _first_present(
-        details,
-        [
-            ("summaryDTO", "startLongitude"),
-            ("startLongitude",),
-            ("longitude",),
-        ],
-    )
+    lat = _first_present(details, [("summaryDTO", "startLatitude"), ("startLatitude",), ("latitude",)])
+    lon = _first_present(details, [("summaryDTO", "startLongitude"), ("startLongitude",), ("longitude",)])
 
     if lat is not None and lon is not None:
         return lat, lon, True
@@ -100,8 +151,7 @@ def get_run_coords(client, activity_id):
 def get_temp_for_run(lat, lon, date_str, hour):
     """Look up temperature/humidity for a specific hour via Open-Meteo's
     free historical archive API (no key required). Returns (None, None)
-    on any failure rather than raising, so one bad lookup never breaks
-    the whole sync."""
+    on any failure rather than raising."""
     try:
         import requests
 
@@ -155,22 +205,91 @@ def get_client():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", default="data.json", help="Output path for the data file")
+    parser.add_argument("--out", default="data.json", help="Path to the permanent archive file")
     args = parser.parse_args()
 
-    client = get_client()
+    archive = load_archive(args.out)
+    existing_ids = {r["id"] for r in archive["runs"] if r.get("id") is not None}
+    is_first_run = len(archive["runs"]) == 0
 
+    client = get_client()
     end = datetime.now()
-    start = end - timedelta(days=LOOKBACK_DAYS)
+
+    if is_first_run:
+        lookback_days = INITIAL_BACKFILL_DAYS
+    else:
+        # Always cover at least year-to-date, even on routine incremental
+        # syncs — this is what keeps "miles this year" on the landing page
+        # accurate without needing a special case. Already-archived runs
+        # in that range are skipped via the ID check below, so this costs
+        # one slightly-larger listing call, not extra per-run enrichment.
+        jan_1 = datetime(end.year, 1, 1)
+        days_since_jan_1 = (end - jan_1).days + 1
+        lookback_days = max(INCREMENTAL_LOOKBACK_DAYS, days_since_jan_1)
+
+    start = end - timedelta(days=lookback_days)
+
+    print(f"{'First-ever run: backfilling' if is_first_run else 'Incremental sync: checking'} "
+          f"{start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}")
+
     activities = client.get_activities_by_date(
         start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), activitytype="running"
     )
 
-    # Wellness: steps, sleep score, stress — last 14 days only (keeps the
-    # day-over-day chart readable; sleep/stress need one call per day)
-    wellness_days = 14
-    wellness = []
-    steps_start = end - timedelta(days=wellness_days)
+    new_runs = []
+    for a in activities:
+        activity_id = _first_present(a, [("activityId",), ("id",)])
+        if activity_id is not None and activity_id in existing_ids:
+            continue  # already archived, nothing to do
+
+        dist_m = a.get("distance") or 0
+        dur_s = a.get("duration") or 0
+        if dist_m <= 0 or dur_s <= 0:
+            continue
+        dist_mi = dist_m / MI
+        pace = (dur_s / 60) / dist_mi
+        start_time_full = a.get("startTimeLocal", "")  # e.g. "2026-08-19 19:52:58"
+        start_date = start_time_full[:10]
+
+        record = {
+            "id": activity_id,
+            "date": start_date,
+            "dist_mi": round(dist_mi, 2),
+            "pace_min_mi": round(pace, 2),
+            "avg_hr": a.get("averageHR"),
+        }
+
+        # Every genuinely new run gets full enrichment — splits, GPS, weather.
+        # This used to be capped to a recent window because it ran on the
+        # WHOLE history every day; now it only ever runs once per run, ever.
+        record["splits"] = get_run_splits(client, activity_id)
+
+        lat, lon, used_gps = get_run_coords(client, activity_id)
+        try:
+            hour = int(start_time_full[11:13]) if len(start_time_full) >= 13 else 12
+        except ValueError:
+            hour = 12
+        temp_f, humidity = get_temp_for_run(lat, lon, start_date, hour)
+        record["time"] = start_time_full[11:16] if len(start_time_full) >= 16 else None
+        record["temp_f"] = temp_f
+        record["humidity"] = humidity
+        record["used_gps"] = used_gps
+
+        new_runs.append(record)
+        if activity_id is not None:
+            existing_ids.add(activity_id)
+
+    archive["runs"].extend(new_runs)
+    archive["runs"].sort(key=lambda r: r["date"])
+    print(f"Added {len(new_runs)} new run(s). Archive now has {len(archive['runs'])} total.")
+
+    # Wellness: steps, sleep score, stress. Merged by date so history is
+    # never lost — only the last WELLNESS_REFRESH_DAYS days get re-checked
+    # each run (covers newly-finalized data), everything older stays as-is.
+    wellness_by_date = {w["date"]: w for w in archive["wellness"] if w.get("date")}
+
+    refresh_days = WELLNESS_REFRESH_DAYS
+    steps_start = end - timedelta(days=refresh_days)
     try:
         steps_by_date = {
             d["calendarDate"]: d.get("totalSteps")
@@ -182,8 +301,8 @@ def main():
         print(f"Could not fetch steps: {e}", file=sys.stderr)
         steps_by_date = {}
 
-    for i in range(wellness_days):
-        d = (end - timedelta(days=wellness_days - 1 - i)).strftime("%Y-%m-%d")
+    for i in range(refresh_days):
+        d = (end - timedelta(days=refresh_days - 1 - i)).strftime("%Y-%m-%d")
         sleep_score = None
         stress_val = None
 
@@ -198,8 +317,6 @@ def main():
                     ("overallSleepScore",),
                 ],
             )
-            if i == 0:
-                print(f"[debug] sleep keys for {d}: {list(sleep.keys()) if isinstance(sleep, dict) else type(sleep)}", file=sys.stderr)
         except Exception as e:
             print(f"Could not fetch sleep for {d}: {e}", file=sys.stderr)
 
@@ -213,67 +330,24 @@ def main():
                     ("stats", "avgStressLevel"),
                 ],
             )
-            if i == 0:
-                print(f"[debug] stress keys for {d}: {list(stress.keys()) if isinstance(stress, dict) else type(stress)}", file=sys.stderr)
         except Exception as e:
             print(f"Could not fetch stress for {d}: {e}", file=sys.stderr)
 
-        wellness.append(
-            {
-                "date": d,
-                "steps": steps_by_date.get(d),
-                "sleep_score": sleep_score,
-                "stress": stress_val,
-            }
-        )
-
-    runs = []
-    enrich_cutoff = (end - timedelta(days=WEATHER_ENRICH_DAYS)).strftime("%Y-%m-%d")
-    for a in activities:
-        dist_m = a.get("distance") or 0
-        dur_s = a.get("duration") or 0
-        if dist_m <= 0 or dur_s <= 0:
-            continue
-        dist_mi = dist_m / MI
-        pace = (dur_s / 60) / dist_mi
-        start_time_full = a.get("startTimeLocal", "")  # e.g. "2026-08-19 19:52:58"
-        start_date = start_time_full[:10]
-
-        record = {
-            "date": start_date,
-            "dist_mi": round(dist_mi, 2),
-            "pace_min_mi": round(pace, 2),
-            "avg_hr": a.get("averageHR"),
+        wellness_by_date[d] = {
+            "date": d,
+            "steps": steps_by_date.get(d),
+            "sleep_score": sleep_score,
+            "stress": stress_val,
         }
 
-        if start_date >= enrich_cutoff:
-            activity_id = _first_present(a, [("activityId",), ("id",)])
-            lat, lon, used_gps = get_run_coords(client, activity_id)
-            try:
-                hour = int(start_time_full[11:13]) if len(start_time_full) >= 13 else 12
-            except ValueError:
-                hour = 12
-            temp_f, humidity = get_temp_for_run(lat, lon, start_date, hour)
-            record["time"] = start_time_full[11:16] if len(start_time_full) >= 16 else None
-            record["temp_f"] = temp_f
-            record["humidity"] = humidity
-            record["used_gps"] = used_gps  # True = actual run location, False = home fallback
-
-        runs.append(record)
-
-    runs.sort(key=lambda r: r["date"])
-
-    out = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
-        "runs": runs,
-        "wellness": wellness,
-    }
+    archive["wellness"] = sorted(wellness_by_date.values(), key=lambda w: w["date"])
+    archive["generated_at"] = datetime.utcnow().isoformat() + "Z"
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as f:
-        json.dump(out, f)
+        json.dump(archive, f)
 
-    print(f"Wrote {len(runs)} runs to {args.out}")
+    print(f"Wrote archive: {len(archive['runs'])} runs, {len(archive['wellness'])} wellness days -> {args.out}")
 
 
 if __name__ == "__main__":
