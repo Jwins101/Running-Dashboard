@@ -71,13 +71,26 @@ def run_signature(r):
 def dedupe_runs(runs):
     """Collapse any duplicate runs already sitting in the archive — this
     is what heals a file that got doubled by the id-less migration bug,
-    without needing a separate one-off cleanup script. Keeps whichever
-    copy has richer data (splits) if there's a conflict."""
+    without needing a separate one-off cleanup script.
+
+    Always groups by the date+distance+pace signature FIRST, regardless
+    of whether an id is present. The previous version keyed by id when
+    available and by signature otherwise — which meant an id-tagged copy
+    and a non-id copy of the exact same run never collided, since they
+    lived under different keys. Signature is a reliable match either way
+    (both copies of a real duplicate are computed from the same source
+    activity, so distance/pace round identically), so it's used as the
+    single grouping key, with id only used to prefer the richer record."""
     best = {}
     for r in runs:
-        sig = r.get("id") if r.get("id") is not None else run_signature(r)
+        sig = run_signature(r)
         existing = best.get(sig)
-        if existing is None or (len(r.get("splits") or []) > len(existing.get("splits") or [])):
+        if existing is None:
+            best[sig] = r
+            continue
+        r_score = (1 if r.get("id") is not None else 0) + len(r.get("splits") or [])
+        e_score = (1 if existing.get("id") is not None else 0) + len(existing.get("splits") or [])
+        if r_score > e_score:
             best[sig] = r
     return list(best.values())
 
