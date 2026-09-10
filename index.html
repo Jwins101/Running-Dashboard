@@ -29,6 +29,18 @@
   <div class="land-stats" id="land-stats-row"></div>
 
   <div class="land-chart-card">
+    <h2 class="rd-sec-title">Then vs. now</h2>
+    <p class="rd-sec-sub" id="trend-sub">First 30 days logged vs. most recent 30 days</p>
+    <div id="trend-cards" class="land-stats" style="grid-template-columns:repeat(3,1fr)"></div>
+  </div>
+
+  <div class="land-chart-card">
+    <h2 class="rd-sec-title">PR shelf</h2>
+    <p class="rd-sec-sub">Auto-detected personal records — updates itself as you keep running</p>
+    <div id="pr-cards" class="land-stats" style="grid-template-columns:repeat(3,1fr);grid-template-rows:auto auto;gap:10px"></div>
+  </div>
+
+  <div class="land-chart-card">
     <h2 class="rd-sec-title">Miles by month</h2>
     <p class="rd-sec-sub" id="land-chart-sub">This year's progression — click a month to see the runs</p>
     <div class="rd-chart-wrap" style="height:220px"><canvas id="land-months-chart" role="img" aria-label="Bar chart of miles run per month this year, click a month to see its runs">Miles per month chart</canvas></div>
@@ -90,6 +102,25 @@
         <span>Larger dot = more humid</span>
       </div>
       <div class="rd-chart-wrap" style="height:260px"><canvas id="land-weather" role="img" aria-label="Chart of running pace and temperature, with dot size indicating humidity">Weather and pace chart</canvas></div>
+    </div>
+  </div>
+
+  <div class="heat-card">
+    <h2 class="rd-sec-title">Consistency (last year)</h2>
+    <p class="rd-sec-sub">Every day, colored by miles run — darker means more</p>
+    <div id="heat-months" class="heat-months"></div>
+    <div class="heat-body">
+      <div class="heat-daylabels"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span>Sun</span></div>
+      <div id="heat-grid" class="heat-grid"></div>
+    </div>
+    <div class="heat-legend">
+      <span>Less</span>
+      <span class="heat-cell" style="background:#1D2C3A"></span>
+      <span class="heat-cell" style="background:#2E4A38"></span>
+      <span class="heat-cell" style="background:#4A7358"></span>
+      <span class="heat-cell" style="background:#6FA179"></span>
+      <span class="heat-cell" style="background:#8FB996"></span>
+      <span>More</span>
     </div>
   </div>
 
@@ -199,8 +230,11 @@ function render({runs, wellness}){
   });
 
   renderPaceHrTrends(runs);
+  renderThenVsNow(runs);
+  renderPrShelf(runs);
   renderWellnessChart(wellness);
   renderWeatherChart(runs);
+  renderConsistencyHeatmap(runs);
 }
 
 function weeklyAgg(runs){
@@ -213,6 +247,109 @@ function weeklyAgg(runs){
     weeks[w].n++;
   });
   return weeks;
+}
+
+function renderThenVsNow(runs){
+  const el = document.getElementById('trend-cards');
+  const subEl = document.getElementById('trend-sub');
+  if(!el) return;
+  const sorted = runs.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  if(sorted.length < 6){
+    el.innerHTML = `<div class="rd-stat"><p class="rd-stat-sub">Not enough history yet — check back after more runs are logged.</p></div>`;
+    return;
+  }
+
+  const firstDate = sorted[0].date;
+  const lastDate = sorted[sorted.length-1].date;
+  const first30End = new Date(firstDate+'T00:00:00'); first30End.setDate(first30End.getDate()+30);
+  const last30Start = new Date(lastDate+'T00:00:00'); last30Start.setDate(last30Start.getDate()-30);
+
+  const firstWindow = sorted.filter(r => r.date < first30End.toISOString().slice(0,10));
+  const lastWindow = sorted.filter(r => r.date >= last30Start.toISOString().slice(0,10));
+
+  function avg(arr, key){ const vals = arr.map(r=>r[key]).filter(v=>v!=null); return vals.length ? vals.reduce((s,v)=>s+v,0)/vals.length : null; }
+  function total(arr, key){ return arr.reduce((s,r)=>s+(r[key]||0),0); }
+
+  const firstPace = avg(firstWindow, 'pace_min_mi');
+  const lastPace = avg(lastWindow, 'pace_min_mi');
+  const firstHr = avg(firstWindow, 'avg_hr');
+  const lastHr = avg(lastWindow, 'avg_hr');
+  const firstVol = total(firstWindow, 'dist_mi');
+  const lastVol = total(lastWindow, 'dist_mi');
+
+  subEl.textContent = `First 30 days (from ${firstDate.slice(5)}) vs. most recent 30 days (through ${lastDate.slice(5)})`;
+
+  function deltaHtml(first, last, fmt, lowerIsBetter){
+    if(first==null || last==null) return '<span class="rd-stat-sub">—</span>';
+    const improved = lowerIsBetter ? last < first : last > first;
+    const color = improved ? '#8FB996' : '#E2725B';
+    const arrow = last === first ? '→' : (last < first ? '↓' : '↑');
+    return `<span style="color:${color};font-family:'IBM Plex Mono',monospace;font-size:12px">${arrow} ${fmt(Math.abs(last-first))}</span>`;
+  }
+
+  el.innerHTML = `
+    <div class="rd-stat">
+      <p class="rd-stat-label">Avg pace</p>
+      <p class="rd-stat-val">${fmtPace(firstPace)} <span style="color:var(--muted);font-size:16px">→</span> ${fmtPace(lastPace)}</p>
+      ${deltaHtml(firstPace, lastPace, v=>fmtPace(v)+'/mi', true)}
+    </div>
+    <div class="rd-stat">
+      <p class="rd-stat-label">Avg heart rate</p>
+      <p class="rd-stat-val">${firstHr?Math.round(firstHr):'—'} <span style="color:var(--muted);font-size:16px">→</span> ${lastHr?Math.round(lastHr):'—'}</p>
+      ${deltaHtml(firstHr, lastHr, v=>Math.round(v)+' bpm', true)}
+    </div>
+    <div class="rd-stat">
+      <p class="rd-stat-label">Volume (30 days)</p>
+      <p class="rd-stat-val">${firstVol.toFixed(0)} <span style="color:var(--muted);font-size:16px">→</span> ${lastVol.toFixed(0)}</p>
+      ${deltaHtml(firstVol, lastVol, v=>v.toFixed(0)+' mi', false)}
+    </div>
+  `;
+}
+
+function renderPrShelf(runs){
+  const el = document.getElementById('pr-cards');
+  if(!el || runs.length === 0) return;
+
+  // Fastest single mile-ish split ever (0.85-1.25mi splits only, so short
+  // recovery jogs/warmup fragments don't get counted as a "mile PR")
+  let fastestMile = null;
+  runs.forEach(r => {
+    (r.splits||[]).forEach(s => {
+      if(s.dist_mi >= 0.85 && s.dist_mi <= 1.25){
+        if(!fastestMile || s.pace_min_mi < fastestMile.pace_min_mi){
+          fastestMile = {...s, date: r.date};
+        }
+      }
+    });
+  });
+
+  const longestRun = runs.reduce((best,r) => (!best || r.dist_mi > best.dist_mi) ? r : best, null);
+
+  const longRuns = runs.filter(r => r.dist_mi >= 10);
+  const fastestLongRun = longRuns.reduce((best,r) => (!best || r.pace_min_mi < best.pace_min_mi) ? r : best, null);
+
+  function mondayOf(dateStr){ const d=new Date(dateStr+'T00:00:00'); const day=(d.getDay()+6)%7; d.setDate(d.getDate()-day); return d.toISOString().slice(0,10); }
+  const byWeek = {};
+  runs.forEach(r => { const w=mondayOf(r.date); byWeek[w]=(byWeek[w]||0)+(r.dist_mi||0); });
+  let bestWeek = null;
+  Object.entries(byWeek).forEach(([w,mi]) => { if(!bestWeek || mi > bestWeek.miles) bestWeek = {week:w, miles:mi}; });
+
+  const byMonth = {};
+  runs.forEach(r => { const m=r.date.slice(0,7); byMonth[m]=(byMonth[m]||0)+(r.dist_mi||0); });
+  let bestMonth = null;
+  Object.entries(byMonth).forEach(([m,mi]) => { if(!bestMonth || mi > bestMonth.miles) bestMonth = {month:m, miles:mi}; });
+
+  function card(label, val, sub){
+    return `<div class="rd-stat"><p class="rd-stat-label">🏆 ${label}</p><p class="rd-stat-val">${val}</p><p class="rd-stat-sub">${sub}</p></div>`;
+  }
+
+  el.innerHTML = [
+    fastestMile ? card('Fastest mile', fmtPace(fastestMile.pace_min_mi)+'/mi', fastestMile.date) : '',
+    longestRun ? card('Longest run', longestRun.dist_mi.toFixed(2)+' mi', longestRun.date) : '',
+    fastestLongRun ? card('Fastest 10mi+ run', fmtPace(fastestLongRun.pace_min_mi)+'/mi', fastestLongRun.date+' · '+fastestLongRun.dist_mi.toFixed(1)+' mi') : '',
+    bestWeek ? card('Best week', bestWeek.miles.toFixed(1)+' mi', 'week of '+bestWeek.week.slice(5)) : '',
+    bestMonth ? card('Best month', bestMonth.miles.toFixed(1)+' mi', new Date(bestMonth.month+'-01T00:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'})) : '',
+  ].join('');
 }
 
 function renderPaceHrTrends(runs){
@@ -318,6 +455,67 @@ function renderWeatherChart(runs){
       }
     }
   });
+}
+
+function renderConsistencyHeatmap(runs){
+  const gridEl = document.getElementById('heat-grid');
+  const monthsEl = document.getElementById('heat-months');
+  if(!gridEl || !monthsEl) return;
+
+  const milesByDate = {};
+  runs.forEach(r => { milesByDate[r.date] = (milesByDate[r.date]||0) + (r.dist_mi||0); });
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  // Start on the Monday of the week 371 days ago, so the grid always
+  // begins on a Monday (matches the Mon-Sun day labels alongside it).
+  const start = new Date(today);
+  start.setDate(start.getDate() - 370);
+  const startDow = (start.getDay()+6)%7; // 0=Mon
+  start.setDate(start.getDate() - startDow);
+
+  const days = [];
+  const cursor = new Date(start);
+  while(cursor <= today){
+    const iso = cursor.toISOString().slice(0,10);
+    days.push({date: iso, miles: milesByDate[iso] || 0});
+    cursor.setDate(cursor.getDate()+1);
+  }
+  // pad the final week out to a full 7 so the grid stays rectangular
+  while(days.length % 7 !== 0){
+    days.push({date: null, miles: 0});
+  }
+
+  function bucketColor(mi){
+    if(!mi || mi <= 0) return '#1D2C3A';
+    if(mi < 3) return '#2E4A38';
+    if(mi < 6) return '#4A7358';
+    if(mi < 9) return '#6FA179';
+    return '#8FB996';
+  }
+
+  gridEl.innerHTML = days.map(d => {
+    const title = d.date ? `${d.date}: ${d.miles.toFixed(1)} mi` : '';
+    return `<div class="heat-cell" style="background:${bucketColor(d.miles)}" title="${title}"></div>`;
+  }).join('');
+
+  // Month labels positioned above the week-column where that month begins
+  const weekCount = days.length / 7;
+  const monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let labelsHtml = '';
+  let lastMonth = null;
+  for(let w=0; w<weekCount; w++){
+    const dayIdx = w*7;
+    const d = days[dayIdx];
+    if(!d.date) continue;
+    const m = new Date(d.date+'T00:00:00').getMonth();
+    if(m !== lastMonth){
+      labelsHtml += `<span class="heat-month-label" style="left:${w*17}px">${monthNamesShort[m]}</span>`;
+      lastMonth = m;
+    }
+  }
+  monthsEl.innerHTML = labelsHtml;
+  monthsEl.style.position = 'relative';
 }
 
 loadData().then(render);
