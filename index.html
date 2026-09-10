@@ -106,8 +106,8 @@
   </div>
 
   <div class="heat-card">
-    <h2 class="rd-sec-title">Consistency (last year)</h2>
-    <p class="rd-sec-sub">Every day, colored by miles run — darker means more</p>
+    <h2 class="rd-sec-title">Consistency (this year)</h2>
+    <p class="rd-sec-sub">Every day of the calendar year, colored by miles run</p>
     <div id="heat-months" class="heat-months"></div>
     <div class="heat-body">
       <div class="heat-daylabels"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span>Sun</span></div>
@@ -473,50 +473,67 @@ function renderConsistencyHeatmap(runs){
   const milesByDate = {};
   runs.forEach(r => { milesByDate[r.date] = (milesByDate[r.date]||0) + (r.dist_mi||0); });
 
-  const today = new Date();
-  today.setHours(0,0,0,0);
-  // Start on the Monday of the week 371 days ago, so the grid always
-  // begins on a Monday (matches the Mon-Sun day labels alongside it).
-  const start = new Date(today);
-  start.setDate(start.getDate() - 370);
-  const startDow = (start.getDay()+6)%7; // 0=Mon
-  start.setDate(start.getDate() - startDow);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const year = today.getFullYear();
+  const yearStart = new Date(year,0,1);
+  const yearEnd = new Date(year,11,31);
+
+  // Pad to full weeks at both ends so the grid stays rectangular, but keep
+  // those padding days (before Jan 1 / after Dec 31) blank — no data can
+  // ever exist there, so they shouldn't pretend to be part of the year.
+  const gridStart = new Date(yearStart);
+  gridStart.setDate(gridStart.getDate() - ((gridStart.getDay()+6)%7));
+  const gridEnd = new Date(yearEnd);
+  gridEnd.setDate(gridEnd.getDate() + (7 - ((gridEnd.getDay()+6)%7) - 1));
 
   const days = [];
-  const cursor = new Date(start);
-  while(cursor <= today){
-    const iso = cursor.toISOString().slice(0,10);
-    days.push({date: iso, miles: milesByDate[iso] || 0});
+  const cursor = new Date(gridStart);
+  while(cursor <= gridEnd){
+    const inYear = cursor >= yearStart && cursor <= yearEnd;
+    if(!inYear){
+      days.push({date:null, miles:null});
+    } else {
+      const iso = cursor.toISOString().slice(0,10);
+      const future = cursor > today;
+      days.push({date: iso, miles: future ? null : (milesByDate[iso] || 0)});
+    }
     cursor.setDate(cursor.getDate()+1);
-  }
-  // pad the final week out to a full 7 so the grid stays rectangular
-  while(days.length % 7 !== 0){
-    days.push({date: null, miles: 0});
   }
   const weekCount = days.length / 7;
 
   function bucketColor(mi){
-    if(!mi || mi <= 0) return '#1D2C3A';
+    if(mi == null) return 'transparent'; // future day, or outside the year
+    if(mi <= 0) return '#1D2C3A';
     if(mi < 3) return '#2E4A38';
     if(mi < 6) return '#4A7358';
     if(mi < 9) return '#6FA179';
     return '#8FB996';
   }
 
-  gridEl.style.gridAutoColumns = (100/weekCount) + '%';
   gridEl.innerHTML = days.map(d => {
-    const title = d.date ? `${d.date}: ${d.miles.toFixed(1)} mi` : '';
+    const title = (d.date && d.miles != null) ? `${d.date}: ${d.miles.toFixed(1)} mi` : '';
     return `<div class="heat-cell" style="background:${bucketColor(d.miles)}" title="${title}"></div>`;
   }).join('');
 
-  // Month labels positioned (as a %) above the week-column where that month begins
+  // Cells are sized in real pixels, measured from the actual rendered
+  // width, so they come out genuinely square — percentage-based sizing
+  // combined with a fixed pixel height never lines up correctly.
+  function sizeCells(){
+    const w = gridEl.clientWidth;
+    const cell = (w - (weekCount-1)*3) / weekCount;
+    gridEl.style.gridAutoColumns = cell + 'px';
+    gridEl.style.height = (cell*7 + 6*3) + 'px';
+  }
+  sizeCells();
+  window.addEventListener('resize', sizeCells);
+
   const monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   let labelsHtml = '';
   let lastMonth = null;
   for(let w=0; w<weekCount; w++){
-    const dayIdx = w*7;
-    const d = days[dayIdx];
-    if(!d.date) continue;
+    const weekDays = days.slice(w*7, w*7+7);
+    const d = weekDays.find(x => x.date);
+    if(!d) continue;
     const m = new Date(d.date+'T00:00:00').getMonth();
     if(m !== lastMonth){
       labelsHtml += `<span class="heat-month-label" style="left:${(w/weekCount*100).toFixed(2)}%">${monthNamesShort[m]}</span>`;
