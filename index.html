@@ -37,7 +37,7 @@
   <div class="land-chart-card">
     <h2 class="rd-sec-title">PR shelf</h2>
     <p class="rd-sec-sub">Auto-detected personal records — updates itself as you keep running</p>
-    <div id="pr-cards" class="land-stats" style="grid-template-columns:repeat(3,1fr);grid-template-rows:auto auto;gap:10px"></div>
+    <div id="pr-cards" class="land-stats" style="grid-template-columns:repeat(3,1fr)"></div>
   </div>
 
   <div class="land-chart-card">
@@ -328,6 +328,13 @@ function renderPrShelf(runs){
   const longRuns = runs.filter(r => r.dist_mi >= 10);
   const fastestLongRun = longRuns.reduce((best,r) => (!best || r.pace_min_mi < best.pace_min_mi) ? r : best, null);
 
+  // Best 5K: fastest pace among runs actually close to 5K distance (3.0-3.3mi
+  // covers normal GPS variance on an actual 5K race or similarly-distanced run)
+  const fiveKRuns = runs.filter(r => r.dist_mi >= 3.0 && r.dist_mi <= 3.3);
+  const best5k = fiveKRuns.reduce((best,r) => (!best || r.pace_min_mi < best.pace_min_mi) ? r : best, null);
+  const best5kTime = best5k ? best5k.pace_min_mi * 3.10686 : null;
+  function fmtTime(mins){ const m=Math.floor(mins), s=Math.round((mins-m)*60); return m+':'+String(s).padStart(2,'0'); }
+
   function mondayOf(dateStr){ const d=new Date(dateStr+'T00:00:00'); const day=(d.getDay()+6)%7; d.setDate(d.getDate()-day); return d.toISOString().slice(0,10); }
   const byWeek = {};
   runs.forEach(r => { const w=mondayOf(r.date); byWeek[w]=(byWeek[w]||0)+(r.dist_mi||0); });
@@ -345,6 +352,7 @@ function renderPrShelf(runs){
 
   el.innerHTML = [
     fastestMile ? card('Fastest mile', fmtPace(fastestMile.pace_min_mi)+'/mi', fastestMile.date) : '',
+    best5k ? card('Best 5K', fmtTime(best5kTime), best5k.date+' · '+best5k.dist_mi.toFixed(2)+' mi') : card('Best 5K', '—', 'No 5K-length run recorded yet'),
     longestRun ? card('Longest run', longestRun.dist_mi.toFixed(2)+' mi', longestRun.date) : '',
     fastestLongRun ? card('Fastest 10mi+ run', fmtPace(fastestLongRun.pace_min_mi)+'/mi', fastestLongRun.date+' · '+fastestLongRun.dist_mi.toFixed(1)+' mi') : '',
     bestWeek ? card('Best week', bestWeek.miles.toFixed(1)+' mi', 'week of '+bestWeek.week.slice(5)) : '',
@@ -485,6 +493,7 @@ function renderConsistencyHeatmap(runs){
   while(days.length % 7 !== 0){
     days.push({date: null, miles: 0});
   }
+  const weekCount = days.length / 7;
 
   function bucketColor(mi){
     if(!mi || mi <= 0) return '#1D2C3A';
@@ -494,13 +503,13 @@ function renderConsistencyHeatmap(runs){
     return '#8FB996';
   }
 
+  gridEl.style.gridAutoColumns = (100/weekCount) + '%';
   gridEl.innerHTML = days.map(d => {
     const title = d.date ? `${d.date}: ${d.miles.toFixed(1)} mi` : '';
     return `<div class="heat-cell" style="background:${bucketColor(d.miles)}" title="${title}"></div>`;
   }).join('');
 
-  // Month labels positioned above the week-column where that month begins
-  const weekCount = days.length / 7;
+  // Month labels positioned (as a %) above the week-column where that month begins
   const monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   let labelsHtml = '';
   let lastMonth = null;
@@ -510,12 +519,11 @@ function renderConsistencyHeatmap(runs){
     if(!d.date) continue;
     const m = new Date(d.date+'T00:00:00').getMonth();
     if(m !== lastMonth){
-      labelsHtml += `<span class="heat-month-label" style="left:${w*17}px">${monthNamesShort[m]}</span>`;
+      labelsHtml += `<span class="heat-month-label" style="left:${(w/weekCount*100).toFixed(2)}%">${monthNamesShort[m]}</span>`;
       lastMonth = m;
     }
   }
   monthsEl.innerHTML = labelsHtml;
-  monthsEl.style.position = 'relative';
 }
 
 loadData().then(render);
