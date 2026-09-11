@@ -181,7 +181,6 @@ function render({runs, wellness}){
   });
 
   const pastData = monthTotals.map((v,i) => i <= currentMonth ? +v.toFixed(1) : null);
-  const futureData = monthTotals.map((v,i) => i >= currentMonth ? (i===currentMonth ? +v.toFixed(1) : 0) : null);
 
   let openMonthIndex = null;
   function showMonthRuns(monthIndex){
@@ -210,8 +209,7 @@ function render({runs, wellness}){
     data: {
       labels: monthNames,
       datasets: [
-        { label: 'Logged', data: pastData, backgroundColor: '#8FB996', borderRadius: 4, maxBarThickness: 28 },
-        { label: 'Ahead', data: futureData, backgroundColor: 'rgba(227,168,87,0.15)', borderColor: '#E3A857', borderWidth: 1.5, borderDash: [4,3], borderRadius: 4, maxBarThickness: 28 }
+        { label: 'Logged', data: pastData, backgroundColor: '#8FB996', borderRadius: 4, maxBarThickness: 28 }
       ]
     },
     options: {

@@ -32,6 +32,7 @@
       <span><span class="rd-dot" style="background:#E3A857"></span>Planned target</span>
     </div>
     <div class="rd-chart-wrap"><canvas id="rd-mileage" role="img" aria-label="Bar chart comparing actual weekly mileage to planned targets from April through November 2026">Weekly mileage chart</canvas></div>
+    <div id="rd-mileage-runs" style="margin-top:14px"></div>
   </div>
 
   <div class="rd-section">
@@ -187,6 +188,29 @@ function render(){
   // mileage chart
   const actualMileage = labels.map(w=> weeks[w] ? +weeks[w].total.toFixed(1) : null);
   const targetMileage = labels.map(w=> planByWeek[w] ? planByWeek[w].total : null);
+
+  let openMileageWeek = null;
+  function showWeekRuns(weekLabel){
+    const el = document.getElementById('rd-mileage-runs');
+    if(openMileageWeek === weekLabel){
+      openMileageWeek = null;
+      el.innerHTML = '';
+      return;
+    }
+    openMileageWeek = weekLabel;
+    const wd = weeks[weekLabel];
+    if(!wd || wd.runs.length === 0){
+      el.innerHTML = `<div class="rd-week"><div class="rd-empty-week" style="padding:12px 16px">No runs logged for this week yet.</div></div>`;
+      return;
+    }
+    const runsSorted = wd.runs.slice().sort((a,b)=>a.date.localeCompare(b.date));
+    el.innerHTML = `
+      <div class="rd-week" style="cursor:default">
+        <div class="rd-actuals-label" style="padding:10px 16px 4px">Week of ${fmtDate(weekLabel)} — ${runsSorted.length} run${runsSorted.length===1?'':'s'}, ${wd.total.toFixed(1)} mi</div>
+        ${runsSorted.map(r=>`<div class="rd-run-row" style="padding-left:16px"><b>${r.date.slice(5)}</b><span>${r.dist_mi.toFixed(2)} mi</span><span>${fmtPace(r.pace_min_mi)}/mi</span><span>${r.avg_hr?Math.round(r.avg_hr)+' bpm':'—'}</span></div>`).join('')}
+      </div>`;
+  }
+
   new Chart(document.getElementById('rd-mileage'), {
     type:'bar',
     data:{labels:labelsShort, datasets:[
@@ -194,7 +218,12 @@ function render(){
       {label:'Target', data:targetMileage, backgroundColor:'rgba(227,168,87,0.35)', borderColor:'#E3A857', borderWidth:1.5, borderRadius:4, maxBarThickness:16}
     ]},
     options:{responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.raw+' mi'}}},
+      onClick:(evt,elements)=>{
+        const hit = elements.find(e=>e.datasetIndex===0);
+        if(hit) showWeekRuns(labels[hit.index]);
+      },
+      onHover:(evt,elements)=>{ evt.native.target.style.cursor = elements.some(e=>e.datasetIndex===0) ? 'pointer' : 'default'; },
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.raw+' mi'+(c.datasetIndex===0?' — click to see runs':'')}}},
       scales:{
         x:{ticks:{color:'#8A97A3',font:{size:10},maxRotation:45,autoSkip:labels.length>20},grid:{display:false}},
         y:{ticks:{color:'#8A97A3',font:{size:10}},grid:{color:'#26394A'},title:{display:true,text:'miles',color:'#8A97A3',font:{size:10}}}
