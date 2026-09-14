@@ -3,9 +3,11 @@
 
 const PLAN_ID = 'road-to-13';
 const PLAN_NAME = 'Road to 13';
-const GOAL_DATE = '2026-11-01';
+const GOAL_DATE = '2026-11-14';
 
-const planWeeks = [{"week":"2026-08-17","total":12,"long":6},{"week":"2026-08-24","total":23.5,"long":10},{"week":"2026-08-31","total":23.5,"long":11},{"week":"2026-09-07","total":11,"long":3.1},{"week":"2026-09-14","total":22,"long":10},{"week":"2026-09-21","total":26,"long":13},{"week":"2026-09-28","total":20,"long":9},{"week":"2026-10-05","total":30,"long":12},{"week":"2026-10-12","total":28.5,"long":13},{"week":"2026-10-19","total":22,"long":10},{"week":"2026-10-26","total":29.5,"long":13},{"week":"2026-11-02","total":25,"long":13}];
+const planWeeks = [{"week":"2026-08-17","total":12,"long":6},{"week":"2026-08-24","total":23.5,"long":10},{"week":"2026-08-31","total":23.5,"long":11},{"week":"2026-09-07","total":11,"long":3.1},{"week":"2026-09-14","total":22,"long":10},{"week":"2026-09-21","total":26,"long":13},{"week":"2026-09-28","total":20,"long":9},{"week":"2026-10-05","total":30,"long":12},{"week":"2026-10-12","total":28.5,"long":13},{"week":"2026-10-19","total":22,"long":10},{"week":"2026-10-26","total":29.5,"long":13},{"week":"2026-11-02","total":17,"long":8},{"week":"2026-11-09","total":19,"long":13.1}];
+
+const HALF_MARATHON_RACE_WEEK = '2026-11-09';
 
 const PLAN_DETAILS = {
   "2026-08-17": { longRun:"6 mi easy", tempo:"Skip — travel week", easy:"2 short runs (3–4 mi), fit around travel", note:"Priority is just not losing the habit. Don't stress about pace." },
@@ -19,7 +21,8 @@ const PLAN_DETAILS = {
   "2026-10-12": { longRun:"13 mi", tempo:"~5.5 mi total — 1mi warmup, 30 min tempo @ 8:15/mi (~3.6mi), 1mi cooldown", easy:"2 runs, 5 mi, easy" },
   "2026-10-19": { longRun:"10 mi", tempo:"4 mi easy", easy:"2 runs, 4 mi, easy", note:"Cutback week." },
   "2026-10-26": { longRun:"13 mi, last 3 mi @ 8:00–8:15/mi", tempo:"~6.3 mi total — 1mi warmup, 6×800m @ 7:50/mi w/ 400m jog recovery between reps, 1mi cooldown", easy:"2 runs, 5 mi, easy", note:"Combining endurance work with goal pace." },
-  "2026-11-02": { longRun:"13 mi, aim for overall pace under 9:00/mi", tempo:"4 mi easy", easy:"2 runs, 4–5 mi, easy", note:"Goal week — should feel stronger than the first 13-miler in September." }
+  "2026-11-02": { longRun:"8 mi easy — taper begins, save the legs", tempo:"3 mi easy, no hard effort", easy:"2 runs, 3–4 mi, easy", note:"First taper week for the Nov 14 half. Volume drops on purpose — nothing you do here makes you fitter, it just protects what's already banked." },
+  "2026-11-09": { longRun:"None separate — the half marathon IS the long run this week", tempo:"HALF MARATHON (13.1 mi) — Saturday 11/14, Novant Health Charlotte Marathon, 7:20 AM. Target: sub-9:00/mi overall (under 1:57:59 total). This is the goal race.", easy:"2 short easy runs (2–3 mi) Mon/Tue only, full rest Wed–Fri", note:"Race week. Flat, fast course through Uptown/Dilworth/NoDa. Forecast averages 44–61°F in mid-November — should be genuinely ideal racing conditions after a summer of heat management." }
 };
 
 // Race marker used by the Long Run Progression chart on road-to-13.html

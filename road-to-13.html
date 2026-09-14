@@ -233,9 +233,9 @@ function render(){
   // long run chart
   const actualLong = labels.map(w=> weeks[w] ? +weeks[w].long.toFixed(1) : null);
   const targetLong = labels.map(w=> planByWeek[w] ? planByWeek[w].long : null);
-  const raceIdx = labels.indexOf('2026-09-07');
-  const pointColors = labels.map((w,i)=> i===raceIdx ? '#E2725B' : '#8FB996');
-  const pointRadii = labels.map((w,i)=> i===raceIdx ? 6 : 3);
+  const raceWeeks = ['2026-09-07', '2026-11-09'];
+  const pointColors = labels.map((w) => raceWeeks.includes(w) ? '#E2725B' : '#8FB996');
+  const pointRadii = labels.map((w) => raceWeeks.includes(w) ? 6 : 3);
   new Chart(document.getElementById('rd-longrun'), {
     type:'line',
     data:{labels:labelsShort, datasets:[
