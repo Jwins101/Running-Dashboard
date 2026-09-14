@@ -37,13 +37,13 @@
 
   <div class="rd-section">
     <h2 class="rd-sec-title">Long run progression</h2>
-    <p class="rd-sec-sub">Building to a 13-mile long run — coral marker shows the 9/14 5K race week</p>
+    <p class="rd-sec-sub">Building to the Nov 14 half marathon — coral markers show the 9/12 5K and the half marathon week</p>
     <div class="rd-legend">
       <span><span class="rd-dot" style="background:#8FB996"></span>Actual long run</span>
       <span><span class="rd-dot" style="background:#E3A857"></span>Target</span>
       <span><span class="rd-dot" style="background:#E2725B"></span>5K race</span>
     </div>
-    <div class="rd-chart-wrap"><canvas id="rd-longrun" role="img" aria-label="Line chart of long run distance progressing from 9 miles toward a 13 mile goal by November">Long run progression chart</canvas></div>
+    <div class="rd-chart-wrap"><canvas id="rd-longrun" role="img" aria-label="Line chart of long run distance progressing toward the November 14 half marathon">Long run progression chart</canvas></div>
   </div>
 
   <div class="rd-section">
@@ -167,7 +167,7 @@ function render(){
   const last6 = sortedActual.slice(-6);
   const avgPace = last6.length ? last6.reduce((s,r)=>s+r.pace_min_mi,0)/last6.length : 0;
   const today = new Date();
-  const goalDate = new Date('2026-11-01T00:00:00');
+  const goalDate = new Date(GOAL_DATE+'T00:00:00');
   const daysLeft = Math.max(0, Math.round((goalDate-today)/86400000));
 
   const yesterdayStr = new Date(today.getTime()-86400000).toISOString().slice(0,10);
@@ -180,7 +180,7 @@ function render(){
   document.getElementById('rd-stat-row').innerHTML = `
     <div class="rd-stat"><p class="rd-stat-label">Longest recent run</p><p class="rd-stat-val">${recentLong.toFixed(1)} mi</p><p class="rd-stat-sub">goal: 13 mi</p></div>
     <div class="rd-stat"><p class="rd-stat-label">Avg pace (last 6)</p><p class="rd-stat-val">${fmtPace(avgPace)}/mi</p><p class="rd-stat-sub">goal: 8:00/mi</p></div>
-    <div class="rd-stat"><p class="rd-stat-label">Days to goal</p><p class="rd-stat-val">${daysLeft}</p><p class="rd-stat-sub">by Nov 1</p></div>
+    <div class="rd-stat"><p class="rd-stat-label">Days to goal</p><p class="rd-stat-val">${daysLeft}</p><p class="rd-stat-sub">to race day</p></div>
     <div class="rd-stat"><p class="rd-stat-label">Last run logged</p><p class="rd-stat-val">${lastRun?lastRun.date.slice(5):'--'}</p><p class="rd-stat-sub">${lastRun?lastRun.dist_mi.toFixed(1)+' mi':''}</p></div>
     ${yesterdayStressHtml}
   `;
