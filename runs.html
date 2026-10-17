@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Run Log | Jwins Running Journey</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="styles.css">
+<style>
+.log-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.log-stats{display:flex;gap:8px;flex-wrap:wrap}
+.log-stat{background:var(--surface2);border:1px solid var(--contour);border-radius:8px;padding:8px 14px}
+.log-stat span{display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.log-stat b{font-family:'Bebas Neue',sans-serif;font-size:24px;font-weight:400;letter-spacing:.02em}
+.log-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.chip{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:5px 12px;border-radius:999px;border:1px solid var(--contour);background:transparent;color:var(--muted);cursor:pointer}
+.chip.on{border-color:var(--sage);background:rgba(143,185,150,.18);color:var(--text)}
+.log-tools select{margin-left:auto;background:var(--surface2);color:var(--text);border:1px solid var(--contour);border-radius:8px;padding:6px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px}
+.log-card{background:var(--surface);border:1px solid var(--contour);border-radius:14px;overflow:hidden}
+.log-cols,.log-row{display:grid;grid-template-columns:96px 70px 66px 52px 50px minmax(0,1fr) 18px;gap:10px;align-items:center;padding:10px 14px}
+.log-cols{font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--contour)}
+.log-month{display:flex;justify-content:space-between;padding:8px 14px;background:var(--surface2);border-top:1px solid var(--contour);border-bottom:1px solid var(--contour);font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:.03em}
+.log-month span{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:0}
+.log-item{border-top:1px solid var(--contour)}
+.log-month+.log-item{border-top:none}
+.log-row{cursor:pointer;font-size:13px;font-family:'IBM Plex Mono',monospace}
+.log-row:hover,.log-item.open{background:var(--surface2)}
+.log-row .d{font-family:'Inter',sans-serif;font-weight:500}
+.log-row .mi{color:var(--sage)}
+.log-row .m{color:var(--muted)}
+.log-row .car{color:var(--muted);font-size:12px;justify-self:end}
+.log-detail{padding:4px 14px 16px}
+.log-meta{font-size:12px;color:var(--muted);margin:0 0 10px;font-family:'IBM Plex Mono',monospace}
+.split{display:grid;grid-template-columns:34px 52px minmax(0,1fr) 44px;gap:10px;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 0;color:var(--muted)}
+.split b{color:var(--text);font-weight:500}
+.split .bar{height:8px;border-radius:4px;background:var(--sage);opacity:.8}
+.split .bar.fast{background:var(--amber);opacity:1}
+.log-empty{padding:28px 14px;text-align:center;color:var(--muted);font-size:13px}
+@media(max-width:640px){
+ .log-cols,.log-row{grid-template-columns:78px 54px 52px 44px 18px;gap:8px;padding:10px}
+ .log-cols span:nth-child(5),.log-cols span:nth-child(6),.log-row .t,.log-row .sp{display:none}
+ .log-tools select{margin-left:0}
+}
+</style>
+</head>
+<body>
+<div class="page-wrap">
+  <a href="index.html" class="back-link">&larr; Jwins Running Journey</a>
+  <div class="log-head">
+    <div>
+      <p class="rd-eyebrow" style="margin:0 0 4px" id="eyebrow">Every logged run</p>
+      <h1 class="rd-title" style="margin:0">Run Log</h1>
+    </div>
+    <div class="log-stats" id="log-stats"></div>
+  </div>
+  <div class="log-tools">
+    <div id="chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <select id="sort" aria-label="Sort runs">
+      <option value="date">Newest first</option>
+      <option value="dist">Longest first</option>
+      <option value="pace">Fastest pace</option>
+      <option value="hr">Highest HR</option>
+    </select>
+  </div>
+  <div class="log-card">
+    <div class="log-cols"><span>Date</span><span>Dist</span><span>Pace</span><span>HR</span><span>Temp</span><span>Pace by mile</span><span></span></div>
+    <div id="log-body"><div class="log-empty">Loading runs…</div></div>
+  </div>
+</div>
+<script>
+const FILTERS=[
+ ['all','All',r=>true],
+ ['s','Under 5 mi',r=>r.dist_mi<5],
+ ['m','5 to 9.9 mi',r=>r.dist_mi>=5&&r.dist_mi<10],
+ ['l','10+ mi',r=>r.dist_mi>=10],
+ ['f','Sub-9:00',r=>r.pace_min_mi<9],
+ ['h','Over 70°F',r=>r.temp_f!=null&&r.temp_f>70]
+];
+let RUNS=[],cur='all',sortBy='date',openId=null;
+const fp=p=>{const t=Math.round(p*60);return Math.floor(t/60)+':'+String(t%60).padStart(2,'0')};
+const day=d=>new Date(d+'T00:00:00');
+const dlabel=d=>day(d).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+const mlabel=d=>day(d).toLocaleDateString('en-US',{month:'long',year:'numeric'});
+const clock=t=>{if(!t)return '';const [h,m]=t.split(':').map(Number);return ((h+11)%12+1)+':'+String(m).padStart(2,'0')+(h<12?' AM':' PM')};
+const full=r=>(r.splits||[]).filter(s=>s.dist_mi>=0.5);
+function spark(r){
+  const s=full(r).map(x=>x.pace_min_mi);
+  if(s.length<2)return '<span></span>';
+  const w=90,h=20,mn=Math.min(...s),mx=Math.max(...s),sp=(mx-mn)||1;
+  const pts=s.map((p,i)=>(i/(s.length-1)*w).toFixed(1)+','+(((p-mn)/sp)*(h-4)+2).toFixed(1)).join(' ');
+  return '<svg class="sp" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" aria-hidden="true"><polyline points="'+pts+'" fill="none" stroke="#8FB996" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+function detail(r){
+  const sp=r.splits||[];
+  const body=full(r);
+  const paces=body.map(s=>s.pace_min_mi);
+  const mn=Math.min(...paces),mx=Math.max(...paces),span=(mx-mn)||1;
+  const meta=[r.time?'Started '+clock(r.time):null,r.temp_f!=null?Math.round(r.temp_f)+'°F':null,r.humidity!=null?r.humidity+'% humidity':null,r.elev_ft?r.elev_ft+' ft gain':null].filter(Boolean).join(' · ');
+  const rows=sp.map((s,i)=>{
+    const partial=s.dist_mi<0.5;
+    const w=partial?0:30+((mx-s.pace_min_mi)/span)*70;
+    const label=partial?s.dist_mi.toFixed(2)+' mi':'Mi '+(i+1);
+    return '<div class="split"><span>'+(partial?'+':(i+1))+'</span><b>'+fp(s.pace_min_mi)+'</b><div>'+(partial?'':'<div class="bar'+(s.pace_min_mi===mn?' fast':'')+'" style="width:'+w.toFixed(0)+'%"></div>')+'</div><span>'+(s.avg_hr||'')+'</span></div>';
+  }).join('');
+  return '<div class="log-detail"><p class="log-meta">'+meta+'</p>'+(sp.length?'<div class="split" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em"><span>Mi</span><span>Pace</span><span></span><span>HR</span></div>'+rows:'<p class="log-meta">'+(r.backlog?'Backlog run, splits not archived.':'No split data for this run.')+'</p>')+'</div>';
+}
+function render(){
+  const f=FILTERS.find(x=>x[0]===cur)[2];
+  let v=RUNS.filter(f);
+  const key={date:(a,b)=>b.date.localeCompare(a.date),dist:(a,b)=>b.dist_mi-a.dist_mi,pace:(a,b)=>a.pace_min_mi-b.pace_min_mi,hr:(a,b)=>(b.avg_hr||0)-(a.avg_hr||0)}[sortBy];
+  v=v.slice().sort(key);
+  document.getElementById('chips').innerHTML=FILTERS.map(x=>'<button class="chip'+(cur===x[0]?' on':'')+'" data-f="'+x[0]+'">'+x[1]+'</button>').join('');
+  const body=document.getElementById('log-body');
+  if(!v.length){body.innerHTML='<div class="log-empty">No runs match this filter.</div>';return}
+  let out='',last='';
+  const group=sortBy==='date';
+  const tot={};
+  if(group)v.forEach(r=>{const m=r.date.slice(0,7);(tot[m]=tot[m]||{n:0,mi:0});tot[m].n++;tot[m].mi+=r.dist_mi});
+  v.forEach(r=>{
+    const m=r.date.slice(0,7);
+    if(group&&m!==last){last=m;out+='<div class="log-month">'+mlabel(r.date)+'<span>'+tot[m].n+' run'+(tot[m].n>1?'s':'')+' · '+tot[m].mi.toFixed(1)+' mi</span></div>'}
+    const o=openId===r.id;
+    out+='<div class="log-item'+(o?' open':'')+'"><div class="log-row" data-id="'+r.id+'"><span class="d">'+dlabel(r.date)+'</span><span class="mi">'+r.dist_mi.toFixed(2)+'</span><span>'+fp(r.pace_min_mi)+'</span><span>'+(r.avg_hr?Math.round(r.avg_hr):'–')+'</span><span class="m t">'+(r.temp_f!=null?Math.round(r.temp_f)+'°':'–')+'</span>'+spark(r)+'<span class="car">'+(o?'▲':'▼')+'</span></div>'+(o?detail(r):'')+'</div>';
+  });
+  body.innerHTML=out;
+}
+document.addEventListener('click',e=>{
+  const c=e.target.closest('[data-f]');
+  if(c){cur=c.dataset.f;openId=null;render();return}
+  const r=e.target.closest('[data-id]');
+  if(r){const id=r.dataset.id;openId=(String(openId)===id)?null:id;render()}
+});
+document.getElementById('sort').addEventListener('change',e=>{sortBy=e.target.value;openId=null;render()});
+fetch('data.json',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+  RUNS=(d.runs||[]).map((r,i)=>Object.assign({},r,{id:String(r.id||r.date+'-'+i)}));
+  const mi=RUNS.reduce((a,r)=>a+r.dist_mi,0);
+  const longest=RUNS.reduce((a,r)=>Math.max(a,r.dist_mi),0);
+  const first=RUNS.map(r=>r.date).sort()[0];
+  document.getElementById('eyebrow').textContent=first?'Every logged run since '+day(first).toLocaleDateString('en-US',{month:'short',year:'numeric'}):'Every logged run';
+  document.getElementById('log-stats').innerHTML=[['Runs',RUNS.length],['Miles',Math.round(mi)],['Longest',longest.toFixed(1)+' mi']].map(s=>'<div class="log-stat"><span>'+s[0]+'</span><b>'+s[1]+'</b></div>').join('');
+  render();
+}).catch(()=>{document.getElementById('log-body').innerHTML='<div class="log-empty">Could not load data.json.</div>'});
+</script>
+</body>
+</html>
